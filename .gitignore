@@ -1,0 +1,44 @@
+# ---- datasets -------------------------------------------------------
+# 3.4 GB of PNGs. Re-download with:
+#   kaggle datasets download -d andrewmvd/lits-png -p data --unzip
+data/
+
+# ---- model weights --------------------------------------------------
+# ~31 MB each. Keep them locally and back them up separately; the metrics
+# and figures in runs/ preserve the results without them.
+*.pt
+*.pth
+*.ckpt
+
+# ---- python ---------------------------------------------------------
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+
+# ---- LaTeX build artifacts ------------------------------------------
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# ---- editors / OS ---------------------------------------------------
+.idea/
+.vscode/
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- scratch --------------------------------------------------------
+gpu_log.csv
+working_versions.txt
+.probe
+chat_export/
+*.tar
+*.tar.gz
+*.zip
