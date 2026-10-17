@@ -159,14 +159,6 @@ width from the command line without editing the model. The default network has
 instead of hard coding it, so the same code runs on cat versus dog, on the six
 animal classes, and on all ten classes.
 
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.62\textwidth]{cls_architecture.png}
-\caption{The classification network for the binary task, drawn automatically from
-the code. Three convolution blocks, each halving the resolution and doubling the
-number of filters, then global average pooling and two fully connected layers.}
-\end{figure}
-
 \textbf{Problems.} Two things cost me time. On Windows the data loader crashed
 with a memory error when I used several worker processes, each worker
 imports PyTorch and Windows backs the shared memory with the paging file,
@@ -392,6 +384,12 @@ did more than once.
 parameter tables automatically from the code, so they cannot go out of date, and
 wrote a tool that produces the comparison table and figures.
 
+\textbf{One more thing at the end of the week.} I wrote a 3D viewer so I could
+look at a whole patient at once instead of one slice at a time, described at the
+end of the next section. It showed me something the per-slice numbers had not:
+the predicted liver comes out in 23 disconnected pieces, which is not a thing a
+Dice score can tell you.
+
 % ---------------------------------------------------------------
 \subsection{Project description: liver and tumour segmentation}
 
@@ -463,16 +461,6 @@ The parameter counts are \textbf{7{,}762{,}531} for U-Net and
 \textbf{7{,}894{,}783} for Attention U-Net. The difference,
 \textbf{132{,}252 parameters (1.7\%)}, is exactly the four attention gates. That
 makes this a clean comparison, because nothing else changes.
-
-\begin{figure}[p]
-\centering
-\includegraphics[height=0.86\textheight,keepaspectratio]{attention_unet_diagram.png}
-\caption{Attention U-Net, generated automatically from the code so the shapes and
-parameter counts cannot drift from the implementation. The orange boxes are the
-four attention gates sitting on the skip connections; the dashed arrows are the
-gating signals coming from the level below.}
-\end{figure}
-
 
 \subsubsection*{Training setup}
 
@@ -566,6 +554,75 @@ contrast and is always in roughly the same place, so the decoder does not need
 help finding it -- and dropping the 67\% of empty slices already solves part of
 the same problem.
 
+\subsubsection*{A 3D viewer}
+
+The network works on one 2D slice at a time and never sees the slice above or
+below. Stacking the predictions back in scan order gives a 3D volume, and nothing
+in the method forces those slices to join up into a sensible shape. To be able to
+look at that, I wrote a small viewer application in Python. A slider steps
+through the slices, radio buttons choose the plane and what is drawn on top, and
+the 3D view beside it is spun by dragging across it.
+
+Two things in it turned out to be about speed rather than features, and I only
+found them by measuring. The first version built the window out of matplotlib,
+which redraws an entire figure on every change -- buttons, sliders and frames
+included -- and hands the whole bitmap to the GUI toolkit, close to two million
+pixels each time. Rebuilding the window with ordinary \texttt{tkinter} widgets
+means the controls are drawn once and only the image is replaced, about eight
+times less work per frame. The second is that the 3D is not drawn live at all:
+rotating a real surface mesh in Python cannot keep up with a mouse, so the
+rotation is rendered in advance into 36 fixed viewing angles with a depth buffer
+in \texttt{numpy}, and dragging then just picks a frame out of an array.
+
+The viewer loads only the slices whose ground truth contains liver, using the
+same \texttt{has\_foreground} rule that training and evaluation use. A CT covers
+much more of the body than the liver, so most slices of a scan are empty: they
+contain no true positives at all, so all they can add to a 3D volume is blobs
+floating where the organ is not. The \texttt{.nii.gz} export for 3D Slicer is
+built the same way. For this patient that is \textbf{187 slices out of 689}.
+
+Both the slices and the 3D view can be shown three ways: the ground truth, the
+prediction, or the \textbf{difference}, which colours every voxel by whether the
+two agree (correct), the model missed it (missed), or it labelled tissue that is
+not there (false alarm).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{viewer_volume16_slices.png}
+\caption{The three planes through one held-out patient. The coronal and sagittal
+views are reconstructed from the stack of 2D predictions, which is why they are
+worth looking at: the network never saw them.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{viewer_volume16_3d.png}
+\caption{The same patient in 3D at two viewing angles. The predicted organ has
+the right overall shape, with the errors concentrated at the top and bottom of
+the liver and a few small blobs detached from it.}
+\end{figure}
+
+Looking at a whole patient at once says things the per-slice numbers do not. For
+this one:
+
+\begin{itemize}
+  \item correct 812{,}344 voxels, missed 64{,}225, false alarm 30{,}568;
+  \item the model \emph{under}-segments: it misses 2.1 times more than it invents;
+  \item the missed voxels are not only a thin rim around the outline. Only 48.9\%
+        of them touch a predicted voxel at all, and 38.7\% sit more than two
+        voxels inside the true liver, so there are whole regions it did not find;
+  \item the prediction breaks into \textbf{23 connected components} where the
+        liver is one connected organ.
+\end{itemize}
+
+That last point suggests an obvious cleanup: keep only the largest predicted
+component and throw the rest away. I measured what that would actually do instead
+of assuming it helps. It removes 9{,}354 false-positive voxels, 30.6\% of them,
+but it also deletes 1{,}575 correct ones. So it is worth doing and it is cheap,
+but it is a smaller win than the picture suggests, because most of the error is
+in the boundary of the organ rather than in the strays, and that is the harder
+problem.
+
 \subsubsection*{Personal contributions}
 
 \begin{itemize}
@@ -583,6 +640,10 @@ the same problem.
   \item Generated the architecture documentation automatically from the code, with
         a check that the diagram, the layer table and the model all agree on the
         parameter count.
+  \item Wrote an interactive 3D viewer in Python, and used its difference view to
+        find that the predicted liver is 23 disconnected pieces rather than one
+        organ -- then measured what the obvious fix would cost instead of
+        assuming it was free.
 \end{itemize}
 
 \subsubsection*{Limitations}

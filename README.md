@@ -61,6 +61,8 @@ src/
     compare.py         side-by-side comparison of runs in a group
     attention_viz.py   reads out the alpha maps from a trained gate
     reeval.py          re-run evaluation on saved checkpoints
+    view3d.py          stacks one patient's slices into a 3D volume
+    viewer.py          the same patient as one self-contained HTML page
     selftest.py        nine checks on the whole pipeline
     download.py        dataset fetch and verification
 ```
@@ -89,6 +91,24 @@ python -m src.utils.compare --group ablation
 Run everything from the project root with `python -m`. Do **not** mark `src/` as
 a Sources Root in an IDE: it puts `src` on `sys.path`, which exposes `src/utils`
 as top-level `utils` and collides with `torch.utils`.
+
+## Looking at a patient in 3D
+
+```bash
+python -m src.utils.viewer --group ablation_2070 --volume 16
+```
+
+Opens a matplotlib window: a slider steps through the slices, radio buttons pick
+the plane (axial / coronal / sagittal) and the overlay (ground truth, prediction,
+or a correct / missed / false-alarm difference map), and the 3D axis beside it
+rotates by dragging. `--save` writes the same views as PNGs instead.
+
+Both this and `view3d.py` load **only the slices whose ground truth contains
+liver**, the same `has_foreground` rule training uses. The other 67% hold no true
+positives, so all they add to a 3D volume is false-positive blobs floating where
+the organ is not. Pass `--all-slices` if you want them anyway.
+
+`view3d.py --nifti` exports the volumes for 3D Slicer or ITK-SNAP.
 
 ## Notes
 

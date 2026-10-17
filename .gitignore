@@ -10,6 +10,15 @@ data/
 *.pth
 *.ckpt
 
+# ---- 3D viewer exports ----------------------------------------------
+# Regenerate with  python -m src.utils.view3d --nifti. The PNG renders in
+# results/ and report/figures/ are kept.
+*.nii
+*.nii.gz
+*.nrrd
+*-Scene.mrml
+*-Scene.png
+
 # ---- python ---------------------------------------------------------
 __pycache__/
 *.py[cod]

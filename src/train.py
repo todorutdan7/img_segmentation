@@ -14,8 +14,8 @@ import torch
 from src.config import Config, ARCH_NAMES, get_device
 from src.data import get_dataloaders
 from src.model import build_model
-from losses import build_loss
-from evaluate import evaluate, accumulate_confusion, metrics_from_confusion
+from src.losses import build_loss
+from src.evaluate import evaluate, accumulate_confusion, metrics_from_confusion
 
 
 def set_seed(seed):

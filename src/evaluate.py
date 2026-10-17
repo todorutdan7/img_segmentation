@@ -14,15 +14,19 @@ OVERLAY_COLORS = [(0, 0, 0, 0), (0.20, 0.55, 0.95, 0.55), (0.95, 0.25, 0.20, 0.7
 
 @torch.no_grad()
 def accumulate_confusion(model, loader, device, num_classes):
+
     model.eval()
     cm = torch.zeros(num_classes, num_classes, dtype=torch.long)
     for x, y in loader:
         x = x.to(device, non_blocking=True)
+
         pred = model(x).argmax(1).cpu()
         y = y.long()
+
         k = (y.view(-1) * num_classes + pred.view(-1))
         cm += torch.bincount(k, minlength=num_classes ** 2).reshape(num_classes, num_classes)
     return cm.numpy()
+
 
 
 def metrics_from_confusion(cm, class_names):
@@ -101,39 +105,57 @@ def plot_dice_bars(metrics, class_names, out_path):
     plt.close(fig)
 
 
-@torch.no_grad()
-def plot_predictions(model, loader, device, class_names, out_path, n_images=6,
-                     prefer_foreground=True):
+
+@torch.no_grad()  # disables gradient tracking to save memory and speed up evaluation
+def plot_predictions(model, loader, device, class_names, out_path, n_images=6, prefer_foreground=True):
     from src.data import denormalize
 
+    # Put the model in evaluation mode (turns off layers like dropout)
     model.eval()
+
+    # create a custom color map for the masks using the colors defined
     cmap = ListedColormap(OVERLAY_COLORS[:len(class_names)])
 
+    # identify which class ID belongs to the tumor (2 in this case)
     tum_cls = len(class_names) - 1 if len(class_names) > 2 else None
+
+    # create empty lists ("pools") to hold candidate images for plotting
     fg_pool, tum_pool = [], []
 
+    # helper function to calculate the Dice score for a single 2D image slice
     def dice_of(gt_mask, pr_mask):
         a, b_ = int(gt_mask.sum()), int(pr_mask.sum())
         if a + b_ == 0:
             return None
         return 2 * int((gt_mask & pr_mask).sum()) / (a + b_)
 
+    # STEP 1: SCAN THE DATASET & FILTER IMAGES
+
     for x, y in loader:
+        # generate predictions for this batch
         pred = model(x.to(device, non_blocking=True)).argmax(1).cpu()
+
+        # look at each individual image in the batch
         for b in range(x.size(0)):
             gt, pr = y[b], pred[b]
             item = (denormalize(x[b, 0]), gt, pr)
 
+            # FILTER 1: FOREGROUND
+            # only keep slices that have at least 200 pixels of actual anatomy
+            # this prevents us from plotting empty, all black slices of air
             if not prefer_foreground or int((gt > 0).sum()) >= 200:
                 d = dice_of(gt > 0, pr > 0)
                 if d is not None:
                     fg_pool.append((d, item))
 
+            # FILTER 2: TUMOR
+            # if the slice has at least 50 pixels of tumor, add it to a special tumor pool
             if tum_cls is not None and int((gt == tum_cls).sum()) >= 50:
                 d = dice_of(gt == tum_cls, pr == tum_cls)
                 if d is not None:
                     tum_pool.append((d, item))
 
+    # FALLBACK: if the dataset is totally empty or weird, just grab the first batch of images
     if not fg_pool:
         for x, y in loader:
             pred = model(x.to(device)).argmax(1).cpu()
@@ -144,72 +166,108 @@ def plot_predictions(model, loader, device, class_names, out_path, n_images=6,
         print("[eval] no samples to plot")
         return None
 
+    # STEP 2: IMAGE SELECTION
+
+    # this helper function picks the "Best", "Typical" (Average), and "Worst" predictions
+
     def take(pool, want, label, metric):
+        # sort the pool of images from lowest Dice score to highest Dice score
         pool = sorted(pool, key=lambda t: t[0])
         n = len(pool)
         k = max(1, want // 3)
-        order = ([n - 1 - i for i in range(k)]
-                 + [n // 2 + i for i in range(want - 2 * k)]
-                 + [i for i in range(k)])
+
+        # figure out the exact indexes for worst (start of list), typical (middle), best (end)
+        order = ([n - 1 - i for i in range(k)]  # Best
+                 + [n // 2 + i for i in range(want - 2 * k)]  # typical/median
+                 + [i for i in range(k)])  # Worst
+
         seen, out = set(), []
         names = ["best"] * k + ["typical"] * (want - 2 * k) + ["worst"] * k
+
+        # grab those specific images and format them with tags
         for i, nm in zip(order, names):
             i = min(max(i, 0), n - 1)
-            if i in seen:
-                continue
+            if i in seen: continue
             seen.add(i)
             d, (img, gt, pr) = pool[i]
+            # pack it up: Image, Ground Truth, Prediction, Dice Score, Label, Metric Name
             out.append((img, gt, pr, d, f"{label} · {nm}", metric))
         return out
 
+    # decide how many images to show, if we want 6 total, try to do 3 tumor and 3 general foreground
     n_tum = min(len(tum_pool), n_images // 2) if tum_pool else 0
     n_fg = n_images - n_tum
+
+    # actually pick the images using the 'take' function above
     picked = take(fg_pool, n_fg, "overall", "fg Dice")
     if n_tum:
         picked += take(tum_pool, n_tum, "tumour", "tumour Dice")
 
+    # print a summary to the console so the user knows what they are looking at
     print(f"[eval] {len(fg_pool)} slices with foreground "
-          f"(median fg Dice {sorted(d for d, _ in fg_pool)[len(fg_pool)//2]:.3f})")
+          f"(median fg Dice {sorted(d for d, _ in fg_pool)[len(fg_pool) // 2]:.3f})")
     if tum_pool:
         td = sorted(d for d, _ in tum_pool)
         print(f"[eval] {len(tum_pool)} slices with >=50 tumour px "
-              f"(median tumour Dice {td[len(td)//2]:.3f}); "
+              f"(median tumour Dice {td[len(td) // 2]:.3f}); "
               f"{sum(1 for d in td if d == 0)} of them scored 0.000")
     else:
         print("[eval] no slice had enough tumour to rank separately")
 
+    # STEP 3: DRAW THE GRID OF IMAGES
+
     rows = len(picked)
+    # create a Matplotlib grid, 3 columns per row (Raw Image, Ground Truth, Prediction)
     fig, axes = plt.subplots(rows, 3, figsize=(9, 3 * rows))
     axes = np.atleast_2d(axes)
+
     for r, (img, gt, pr, dice, tag, metric) in enumerate(picked):
         for c, (title, mask) in enumerate(
                 [("CT slice", None), ("ground truth", gt), ("prediction", pr)]):
             ax = axes[r, c]
+
+            # draw the black and white CT scan first
             ax.imshow(img, cmap="gray")
+
             if mask is not None:
+                # np.ma.masked_where makes Class 0 (Background) transparent
+                # this way, we only paint the colorful masks over the actual anatomy/tumor
                 ax.imshow(np.ma.masked_where(mask == 0, mask), cmap=cmap,
                           vmin=0, vmax=len(class_names) - 1, interpolation="nearest")
+
+            # add column titles on the very top row
             if r == 0:
                 ax.set_title(title, fontsize=10)
-            ax.axis("off")
+            ax.axis("off")  # hide graph axes/numbers
+
+        # write the text (e.g. "tumor worst   Dice: 0.120") on the left side of each row
         colour = "#FF6B6B" if tag.startswith("tumour") else "yellow"
         axes[r, 0].text(2, 14, f"{tag}   {metric} {dice:.3f}",
                         color=colour, fontsize=9, fontweight="bold")
+
+        # if there is tumor, print exactly how many tumor pixels were found vs expected
         if tum_cls is not None:
             gt_t, pr_t = int((gt == tum_cls).sum()), int((pr == tum_cls).sum())
             if gt_t or pr_t:
                 axes[r, 0].text(2, 30, f"tumour px: true {gt_t}, predicted {pr_t}",
                                 color=colour, fontsize=7.5)
 
+    # STEP 4: FINALIZE AND SAVE IMAGE
+
+    # create a custom legend at the bottom mapping colors to class names
     handles = [plt.Rectangle((0, 0), 1, 1, fc=OVERLAY_COLORS[i][:3])
                for i in range(1, len(class_names))]
     fig.legend(handles, class_names[1:], loc="lower center",
                ncol=len(class_names) - 1, frameon=False)
+
     fig.suptitle("Segmentation results - test set", fontsize=12)
-    fig.tight_layout(rect=[0, 0.04, 1, 0.97])
+    fig.tight_layout(rect=[0, 0.04, 1, 0.97])  # space out the images so they don't overlap
+
+    # save the picture to the disk
     fig.savefig(out_path, dpi=150)
-    plt.close(fig)
+    plt.close(fig)  # free up memory
     print(f"[eval] saved {out_path}")
+
     return out_path
 
 
@@ -239,8 +297,7 @@ def evaluate(model, loader, device, class_names, out_dir, split="test", verbose=
     plot_confusion(cm, class_names, out_dir / f"confusion_{split}.png", normalize=True)
     plot_confusion(cm, class_names, out_dir / f"confusion_{split}_counts.png", normalize=False)
     plot_dice_bars(m, class_names, out_dir / f"dice_iou_{split}.png")
-    plot_predictions(model, loader, device, class_names,
-                     out_dir / f"predictions_{split}.png")
+    plot_predictions(model, loader, device, class_names, out_dir / f"predictions_{split}.png")
 
     with open(out_dir / f"metrics_{split}.json", "w") as f:
         json.dump(m, f, indent=2)

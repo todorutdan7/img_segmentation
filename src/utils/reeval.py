@@ -18,12 +18,13 @@ from dataclasses import replace
 from pathlib import Path
 
 from src.config import get_device
-from src.data import get_dataloaders
+from src.data import get_dataloaders, has_foreground as _has_fg
 from src.model import load_checkpoint
 from src.evaluate import evaluate
 
 
-def run_one(ckpt: Path, device, num_workers=0, batch_size=None, verbose=True):
+def run_one(ckpt: Path, device, num_workers=0, batch_size=None,
+            keep_empty=False, verbose=True):
     model, cfg, ck = load_checkpoint(ckpt, device)
 
     # The checkpoint carries the config it was TRAINED with, including
@@ -34,6 +35,16 @@ def run_one(ckpt: Path, device, num_workers=0, batch_size=None, verbose=True):
     cfg = replace(cfg, num_workers=num_workers,
                   batch_size=batch_size or cfg.batch_size)
 
+    # Scoring on EVERY slice, not only the ones containing liver. Training drops
+    # empty slices, but at inference the model is shown the whole scan, so this
+    # is the realistic number. The volume-level split is unaffected: all 131
+    # patients contain foreground either way, so the same 20 land in test and
+    # the two results stay directly comparable.
+    split_name = "test"
+    if keep_empty:
+        cfg = replace(cfg, skip_empty=False)
+        split_name = "test_allslices"
+
     out_dir = ckpt.parent
     print(f"\n=== {out_dir.name} ===")
     print(f"[load] arch={cfg.arch}  epoch={ck.get('epoch')}  "
@@ -41,12 +52,21 @@ def run_one(ckpt: Path, device, num_workers=0, batch_size=None, verbose=True):
           f"params={model.count_parameters():,}")
 
     _, _, test_loader, _ = get_dataloaders(cfg, verbose=False)
+    n = len(test_loader.dataset)
+    empty = sum(1 for _, mp in test_loader.dataset.pairs
+                if not _has_fg(mp)) if keep_empty else 0
+    print(f"[data] test slices: {n:,}"
+          + (f"   ({empty:,} of them contain no liver at all)" if keep_empty else
+             "   (foreground slices only)"))
+
     metrics = evaluate(model, test_loader, device, cfg.class_names, out_dir,
-                       split="test", verbose=verbose)
+                       split=split_name, verbose=verbose)
 
     metrics["params"] = model.count_parameters()
+    metrics["n_test_slices"] = n
+    metrics["skip_empty"] = cfg.skip_empty
     # keep the fields compare.py expects, if a previous metrics file had them
-    old = out_dir / "metrics_test.json"
+    old = out_dir / f"metrics_{split_name}.json"
     if old.exists():
         try:
             prev = json.loads(old.read_text())
@@ -70,6 +90,10 @@ def main():
                    help="0 on Windows; the checkpoint's own value is ignored "
                         "because it belongs to the machine that trained it")
     p.add_argument("--batch-size", type=int, default=None)
+    p.add_argument("--keep-empty", action="store_true",
+                   help="score EVERY slice of the test patients, including the "
+                        "~71%% with no liver. Writes metrics_test_allslices.json "
+                        "so the foreground-only results are not overwritten.")
     a = p.parse_args()
 
     device = get_device()
@@ -81,10 +105,12 @@ def main():
     if not ckpts:
         raise SystemExit(f"no checkpoints found for group={a.group}")
 
+    mode = "ALL slices" if a.keep_empty else "foreground slices only"
     print(f"re-evaluating {len(ckpts)} run(s) on device={device} "
-          f"(num_workers={a.num_workers})")
+          f"(num_workers={a.num_workers}, {mode})")
     for c in ckpts:
-        run_one(c, device, num_workers=a.num_workers, batch_size=a.batch_size)
+        run_one(c, device, num_workers=a.num_workers, batch_size=a.batch_size,
+                keep_empty=a.keep_empty)
 
     print(f"\ndone. Re-run  python -m src.utils.compare --group {a.group}  "
           f"to refresh the comparison.")

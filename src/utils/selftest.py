@@ -162,7 +162,7 @@ def main():
     # ---- 8. loss + backward ----------------------------------------------
     @check("loss computes and gradients flow", requires=("model", "loaders", "batch"))
     def _():
-        from losses import build_loss
+        from src.losses import build_loss
         x, y = STATE["batch"]
         x, y = x.to(device), y.to(device)
         crit = build_loss(cfg, STATE["loaders"][3], device)
@@ -181,7 +181,7 @@ def main():
     # ---- 9. metrics -------------------------------------------------------
     @check("confusion matrix and Dice/IoU compute on the test split", requires=("model", "loaders"))
     def _():
-        from evaluate import accumulate_confusion, metrics_from_confusion
+        from src.evaluate import accumulate_confusion, metrics_from_confusion
         STATE["model"].eval()
         cm = accumulate_confusion(STATE["model"], STATE["loaders"][2], device, cfg.num_classes)
         m = metrics_from_confusion(cm, cfg.class_names)

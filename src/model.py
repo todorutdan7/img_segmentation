@@ -9,7 +9,7 @@ class DoubleConv(nn.Module):
         super().__init__()
         layers = []
         # first convolution in_ch -> out_ch, eg converts 1 channel grayscale slice into 32 feature maps
-        # second convolutio out_ch input -> out_ch output
+        # second convolution out_ch input -> out_ch output
         for a, b in [(in_ch, out_ch), (out_ch, out_ch)]:
             layers.append(nn.Conv2d(a, b, kernel_size=3, padding=1, bias=not batch_norm))
             if batch_norm:
