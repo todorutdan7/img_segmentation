@@ -1,0 +1,88 @@
+MSD Task03_Liver (LiTS in NIfTI) — study
+==========================================================================
+
+SOURCE
+  cache             C:\Users\Dan\Desktop\img_segmentation\data\nifti_cache_256  (256x256 per slice)
+  labelled scans    131   (imagesTr + labelsTr)
+  unlabelled scans  70 in imagesTs - no labels, so not usable for scoring
+  format            float32 CT in Hounsfield units, uint8 labels
+                    0 background, 1 liver, 2 tumour - one label map per scan,
+                    lossless, so no compression noise to filter out
+
+GEOMETRY
+  in-plane          512x512 in every labelled scan
+  pixel spacing     0.557-1.000 mm  (median 0.768)
+                    so one pixel is not one size: the same liver covers
+                    1.8x more pixels in the finest scan than the coarsest
+  slice thickness   0.70-5.00 mm  (median 1.00)
+                       0.70 mm   22 scans  ######################
+                       0.80 mm   29 scans  #############################
+                       1.00 mm   33 scans  #################################
+                       1.20 mm    1 scans  #
+                       1.25 mm    3 scans  ###
+                       1.50 mm   10 scans  ##########
+                       2.00 mm    8 scans  ########
+                       2.50 mm   11 scans  ###########
+                       3.00 mm    2 scans  ##
+                       3.27 mm    1 scans  #
+                       4.00 mm    2 scans  ##
+                       5.00 mm    9 scans  #########
+  slices per scan   74-987  (median 432, total 58,638)
+  scan length       74-808 mm  (median 482)
+
+  Thin-slice scans contribute far more 2D training slices than thick ones
+  for the same anatomy: a 0.7 mm scan gives ~7x the slices of a 5 mm scan.
+  A 2D model therefore sees the thin-slice hospitals much more often.
+
+INTENSITY (Hounsfield units, from every voxel)
+  all voxels        -2048 to 27572, 0.5-99.5 pct -1024 to 604
+  below -1024 HU    5 scans [4, 16, 17, 18, 22]: the corners outside the round
+                    field of view are padded with -2048 instead of -1024
+  above 4000 HU     19 scans, up to 27572: metal or out-of-range
+                    values. Real tissue stops near 3000; the HU window clips
+                    them away, so they never reach the model.
+                       0.5%     5%  median    95%  99.5%    mean
+  liver                 -11     41     102    160    202     102
+  tumour                -45     -3      60    126    165      61
+
+  Liver and tumour sit in a narrow band, and they overlap: the tumour is only
+  ~42 HU darker at the median. That is why the model gets a
+  narrow window around them, not the full -1024..3000 range.
+  Foreground 0.5-99.5 percentile window: [-17, 201] HU - the clipping range
+  nnU-Net would pick for this data. It is the default hu_window.
+
+CLASS BALANCE (by voxel, full resolution)
+  background   15,020,370,189    97.7151%
+  liver           332,764,489     2.1648%
+  tumor            18,465,194     0.1201%
+  background is 813x the tumour class
+
+SLICE CONTENT   (all 58,638 slices)
+  any foreground (full res)       19,163    32.7%
+  any foreground at 256px           19,156    32.7%   <- what skip_empty keeps
+  any tumour at 256px                7,163    12.2%
+
+ORGAN AND LESIONS (3D, in millilitres)
+  liver volume      583-3341 mL  (median 1645)
+  tumour burden     0.0-988 mL  (median 14.4)
+  scans with no tumour at all: 13
+  lesions per scan  0-79  (median 4, total 1037)
+  lesion size       median 0.37 mL, 90th pct 12.6 mL, largest 969 mL
+    smaller than  0.1 mL:   284  (27.4%)
+    smaller than    1 mL:   688  (66.3%)
+    smaller than   10 mL:   917  (88.4%)
+
+  140 of the 1037 are 5 voxels or fewer: specks left in the annotation
+  rather than lesions a radiologist would count, but they are scored as tumour.
+
+  Most lesions are tiny. A 1 mL sphere is ~12 mm across - about 16 pixels
+  at full resolution, 8 at 256px, 4 at 128px. This is where the tumour
+  recall goes, and why lowering the resolution costs tumour Dice first.
+  (Lesions are 3D connected components; on thick-slice scans one lesion
+  can break into pieces, so the count is an upper bound.)
+
+SPLIT  (seed 42, by patient - no patient is in two splits)
+  train   91 scans
+  val     20 scans   [7, 10, 27, 28, 38, 40, 65, 67, 73, 76, 79, 90, 96, 98, 110, 114, 125, 126, 127, 130]
+  test    20 scans   [1, 16, 23, 25, 30, 51, 53, 54, 62, 68, 71, 75, 77, 78, 91, 104, 106, 112, 117, 121]
+  test tumour burden: 1303 mL in total, 2 test scans with no tumour

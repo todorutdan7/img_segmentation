@@ -1,15 +1,17 @@
 """Re-run the test evaluation on already-trained checkpoints.
 
-    python -m src.utils.reeval --group ablation          # every run in the group
+    python -m src.utils.reeval --group nifti/baseline     # every run in runs/nifti/baseline
     python -m src.utils.reeval --ckpt runs/.../best_model.pt
+    python -m src.utils.reeval --group internship_png/ablation_2070
 
 Regenerates confusion matrices, the per-class Dice/IoU bars, predictions_test.png
 and metrics_test.json inside each run folder - without retraining. Useful after
 changing anything in evaluate.py, since those figures are otherwise only written
-once, at the end of a training run.
+once, at the end of a training run. It also records Dice per patient, next to
+the pooled number.
 
-The config is read back out of each checkpoint, so the test split is exactly the
-one the model was trained against.
+The config is read back out of each checkpoint, so the data format and the test
+split are exactly the ones the model was trained with.
 """
 
 import argparse
@@ -17,10 +19,32 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+import numpy as np
+
 from src.config import get_device
-from src.data import get_dataloaders, has_foreground as _has_fg
+from src.data import get_dataloaders, has_foreground as _has_fg, volume_id
 from src.model import load_checkpoint
-from src.evaluate import evaluate
+from src.evaluate import evaluate, per_volume_confusion, case_dice
+
+
+def volume_keys(dataset, cfg):
+    """the patient of every dataset item, in order"""
+    if cfg.data_format == "nifti":
+        return [k for k, _ in dataset.pairs]
+    return [volume_id(ip) for ip, _ in dataset.pairs]
+
+
+def per_case(model, loader, cfg, device):
+    """per-patient Dice, as LiTS reports it next to the pooled number.
+    Tumour is averaged over the patients whose truth or prediction has some."""
+    cms = per_volume_confusion(model, loader, device, cfg.num_classes,
+                               volume_keys(loader.dataset, cfg))
+    per = {k: {c: (None if np.isnan(d) else round(float(d), 4))
+               for c, d in zip(cfg.class_names, case_dice(cm))}
+           for k, cm in sorted(cms.items(), key=lambda t: int(t[0].split("-")[1]))}
+    mean = {c: float(np.nanmean([np.nan if v[c] is None else v[c] for v in per.values()]))
+            for c in cfg.class_names[1:]}
+    return per, mean
 
 
 def run_one(ckpt: Path, device, num_workers=0, batch_size=None,
@@ -47,14 +71,20 @@ def run_one(ckpt: Path, device, num_workers=0, batch_size=None,
 
     out_dir = ckpt.parent
     print(f"\n=== {out_dir.name} ===")
-    print(f"[load] arch={cfg.arch}  epoch={ck.get('epoch')}  "
+    print(f"[load] arch={cfg.arch}  data={cfg.data_format}  epoch={ck.get('epoch')}  "
           f"val_dice_fg={ck.get('val_dice_fg', float('nan')):.4f}  "
           f"params={model.count_parameters():,}")
 
     _, _, test_loader, _ = get_dataloaders(cfg, verbose=False)
-    n = len(test_loader.dataset)
-    empty = sum(1 for _, mp in test_loader.dataset.pairs
-                if not _has_fg(mp)) if keep_empty else 0
+    ds = test_loader.dataset
+    n = len(ds)
+    if not keep_empty:
+        empty = 0
+    elif cfg.data_format == "nifti":
+        empty = sum(1 for k, z in ds.pairs
+                    if ds.volumes[k]["liver_px"][z] + ds.volumes[k]["tumor_px"][z] == 0)
+    else:
+        empty = sum(1 for _, mp in ds.pairs if not _has_fg(mp))
     print(f"[data] test slices: {n:,}"
           + (f"   ({empty:,} of them contain no liver at all)" if keep_empty else
              "   (foreground slices only)"))
@@ -65,6 +95,10 @@ def run_one(ckpt: Path, device, num_workers=0, batch_size=None,
     metrics["params"] = model.count_parameters()
     metrics["n_test_slices"] = n
     metrics["skip_empty"] = cfg.skip_empty
+    metrics["data_format"] = cfg.data_format
+    metrics["per_volume_dice"], metrics["mean_case_dice"] = per_case(model, test_loader, cfg, device)
+    print("mean Dice per patient: " + "  ".join(
+        f"{c} {d:.4f}" for c, d in metrics["mean_case_dice"].items()))
     # keep the fields compare.py expects, if a previous metrics file had them
     old = out_dir / f"metrics_{split_name}.json"
     if old.exists():
@@ -84,7 +118,8 @@ def main():
     from src.config import RUNS_DIR
 
     p = argparse.ArgumentParser(description="re-evaluate trained checkpoints")
-    p.add_argument("--group", default="ablation")
+    p.add_argument("--group", default="nifti/baseline",
+                   help="folder under runs/, e.g. nifti/baseline or internship_png/ablation_2070")
     p.add_argument("--ckpt", default=None, help="a single best_model.pt")
     p.add_argument("--num-workers", type=int, default=0,
                    help="0 on Windows; the checkpoint's own value is ignored "
@@ -92,7 +127,7 @@ def main():
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument("--keep-empty", action="store_true",
                    help="score EVERY slice of the test patients, including the "
-                        "~71%% with no liver. Writes metrics_test_allslices.json "
+                        "~67%% with no liver. Writes metrics_test_allslices.json "
                         "so the foreground-only results are not overwritten.")
     a = p.parse_args()
 
@@ -103,7 +138,7 @@ def main():
     else:
         ckpts = sorted((Path(RUNS_DIR) / a.group).glob("*/best_model.pt"))
     if not ckpts:
-        raise SystemExit(f"no checkpoints found for group={a.group}")
+        raise SystemExit(f"no checkpoints found under runs/{a.group}")
 
     mode = "ALL slices" if a.keep_empty else "foreground slices only"
     print(f"re-evaluating {len(ckpts)} run(s) on device={device} "

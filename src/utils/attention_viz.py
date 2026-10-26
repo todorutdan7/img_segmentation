@@ -1,6 +1,6 @@
 """What did the attention gates actually learn?
 
-    python -m src.utils.attention_viz --group ablation
+    python -m src.utils.attention_viz --group nifti/baseline
 
 Loads a trained Attention U-Net, runs test slices through it, and reads out the
 alpha map each gate produced. Two outputs:
@@ -250,10 +250,11 @@ def report(stats, n_seen):
 
 
 def main():
-    from src.config import RUNS_DIR, ROOT
+    from src.config import RUNS_DIR, results_dir
 
     p = argparse.ArgumentParser(description="visualise what the attention gates learned")
-    p.add_argument("--group", default="ablation")
+    p.add_argument("--group", default="nifti/baseline",
+                   help="folder under runs/, e.g. nifti/baseline or internship_png/ablation_2070")
     p.add_argument("--ckpt", default=None, help="path to a best_model.pt")
     p.add_argument("--samples", type=int, default=3)
     p.add_argument("--n-slices", type=int, default=200,
@@ -276,8 +277,7 @@ def main():
 
     stats, seen = measure(model, test_loader, device, a.n_slices)
 
-    out = Path(ROOT) / "results"
-    out.mkdir(parents=True, exist_ok=True)
+    out = results_dir(cfg.data_format)
     figure(model, samples, stats, out / "attention_maps.png", a.dpi)
 
     txt = report(stats, seen)

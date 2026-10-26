@@ -6,7 +6,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from src.config import DATA_DIR, CLASS_NAMES, MASK_VALUES
+from src.config import Config, CLASS_NAMES, MASK_VALUES
+
+DATA_DIR = Config().root_data_dir       # the internship png export, data/internship_png
 
 KAGGLE_SLUG = "harshwardhanbhangale/lits-dataset"
 ALTERNATIVES = [

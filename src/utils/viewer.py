@@ -7,9 +7,18 @@ that writes files and exits, and is the only one that can export `.nii.gz` for
 
 HOW TO RUN IT
 
-    python -m src.utils.viewer --group ablation_2070 --volume 16
-    python -m src.utils.viewer --from-nifti 16      # reuse an earlier export
+    python -m src.utils.viewer --scan 16            # a NIfTI scan + its labels, no model
+    python -m src.utils.viewer --volume 16          # a model from runs/nifti/baseline
     python -m src.utils.viewer --volume 16 --save   # write PNGs, no window
+    python -m src.utils.viewer --from-export 16     # reuse an earlier view3d export
+    python -m src.utils.viewer --group internship_png/ablation_2070 --volume 16
+
+WHAT IT NEEDS
+--scan needs only the data: it reads data/Task03_Liver/imagesTr/liver_16.nii.gz
+and its label file, and shows the whole scan with the true liver and tumour.
+Otherwise it needs a trained model (its checkpoint) and a patient. The model
+runs on every slice of that patient, read from the data it was trained on: the
+nifti cache for a nifti model, the internship pngs for a png one.
 
 WHAT YOU SEE
     left    radio buttons for the plane and the overlay, a colour key, and
@@ -25,7 +34,7 @@ where the organ is not.
 
 PIPELINE
     main()
-      -> load_from_model()  or  from_nifti()      get ct, gt, pr as 3D arrays
+      -> load_from_model()  or  from_export()     get ct, gt, pr as 3D arrays
       -> App(...)                                 build the window
            -> Turntable(...)                      precompute the 3D frames
            -> draw() / draw3()                    on every user action
@@ -166,19 +175,29 @@ class Turntable:
     render cost is paid up front so that dragging costs nothing.
     """
 
-    def __init__(self, gt, pr, z_scale=1.0, n_angles=N_ANGLES, pad=6):
-        """IN  gt, pr - label volumes (z, y, x), values 0/1/2
+    def __init__(self, gt, pr, z_scale=1.0, n_angles=N_ANGLES, pad=6, max_side=256):
+        """IN  gt, pr - label volumes (z, y, x), values 0/1/2. pr is None when
+                       there is no model (--scan): only the truth is drawn
               z_scale - slice thickness in in-plane pixels
               n_angles - how many angles to render; 36 = one step per 10 degrees
               pad     - blank border in pixels, so the shape never touches the edge
+              max_side - slices wider than this are thinned to every 2nd (3rd..)
+                         voxel for the 3D only. The panel is 420 px wide, so a
+                         512 scan looks the same and renders 4x faster
         """
         self.n_angles, self.pad = n_angles, pad
-        g, p = gt > 0, pr > 0
+        f = -(-gt.shape[1] // max_side)             # ceil: 512 -> 2, 256 -> 1
+        if f > 1:
+            gt = gt[:, ::f, ::f]
+            pr = pr[:, ::f, ::f] if pr is not None else None
+            z_scale = z_scale / f                   # an in-plane pixel is now f times wider
         # The seven point clouds every mode is built from. Four for the plain
         # views, three for the difference view.
-        masks = {"gl": gt == 1, "gt": gt == 2,      # ground truth liver / tumor
-                 "pl": pr == 1, "pt": pr == 2,      # predicted liver / tumor
-                 "ok": g & p, "miss": g & ~p, "bad": ~g & p}
+        masks = {"gl": gt == 1, "gt": gt == 2}      # ground truth liver / tumor
+        if pr is not None:
+            g, p = gt > 0, pr > 0
+            masks.update({"pl": pr == 1, "pt": pr == 2,      # predicted liver / tumor
+                          "ok": g & p, "miss": g & ~p, "bad": ~g & p})
 
         pts = {}
         for k, m in masks.items():
@@ -347,7 +366,9 @@ class App:
     """
 
     def __init__(self, ct, gt, pr, title, z_scale=1.0, n_angles=N_ANGLES):
-        """IN  ct, gt, pr - (z, y, x) uint8 volumes from load_from_model/from_nifti
+        """IN  ct, gt, pr - (z, y, x) uint8 volumes from load_from_model/from_export/
+                            load_scan_only. pr is None without a model: then
+                            only the ground truth overlay exists
               title       - window title and heading
               z_scale     - slice thickness, for the coronal/sagittal aspect
               n_angles    - rotation frames to precompute
@@ -365,15 +386,21 @@ class App:
         self.z_scale = z_scale
         self.turn = Turntable(gt, pr, z_scale, n_angles)   # the slow bit, once
         self.angle = 0
+        self.modes = MODES if pr is not None else ("ground truth",)
 
         root = tk.Tk()
         self.root = root
         root.title(title)
         root.configure(bg="#f4f4f4")
+        # Tallest the slice image may be: the screen, minus the title bar, the
+        # heading, the two sliders under the image and the taskbar. A whole
+        # scan (--scan) seen from the side is taller than that, and the window
+        # has no scrollbar, so without this limit the sliders end up off screen.
+        self.max_h = max(300, root.winfo_screenheight() - 300)
 
         # StringVars are how tkinter radio buttons report their selection.
         self.plane = tk.StringVar(value="axial")
-        self.mode = tk.StringVar(value="difference")
+        self.mode = tk.StringVar(value=self.modes[-1])     # difference, if there is one
 
         # Three columns: controls, slices, 3D.
         left = tk.Frame(root, bg="#f4f4f4", padx=12, pady=12)
@@ -391,7 +418,7 @@ class App:
         # which StringVar they write to and which callback they fire.
         for name, var, opts, cb in (("plane", self.plane,
                                      ("axial", "coronal", "sagittal"), self.on_plane),
-                                    ("overlay", self.mode, MODES, self.on_mode)):
+                                    ("overlay", self.mode, self.modes, self.on_mode)):
             tk.Label(left, text=name, bg="#f4f4f4",
                      font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(6, 0))
             for o in opts:
@@ -411,20 +438,29 @@ class App:
         self.stat.pack(anchor="w", pady=(12, 0))
 
         # Whole-volume numbers. Built once here because they never change.
-        s = volume_stats(gt, pr)
+        if pr is not None:
+            s = volume_stats(gt, pr)
+            text = ("whole volume\n"
+                    f"  correct {s['correct']:>9,}\n"
+                    f"  missed  {s['missed']:>9,}\n"
+                    f"  false   {s['false']:>9,}")
+        else:
+            text = ("whole scan, voxels\n"
+                    f"  liver   {int((gt == 1).sum()):>11,}\n"
+                    f"  tumour  {int((gt == 2).sum()):>11,}")
         tk.Label(left, bg="#f4f4f4", font=("Consolas", 9), justify="left",
-                 anchor="w",
-                 text=("whole volume\n"
-                       f"  correct {s['correct']:>9,}\n"
-                       f"  missed  {s['missed']:>9,}\n"
-                       f"  false   {s['false']:>9,}")
-                 ).pack(anchor="w", pady=(10, 0))
+                 anchor="w", text=text).pack(anchor="w", pady=(10, 0))
 
         # ---- middle: slices ----------------------------------------------
         self.head = tk.Label(mid, bg="#f4f4f4", font=("Segoe UI", 10))
         self.head.pack()
         self.img = tk.Label(mid, bg="black", bd=0)   # the slice image lives here
         self.img.pack()
+        # The mouse wheel over the image steps through the slices.
+        # <MouseWheel> is Windows and macOS; Linux sends buttons 4 and 5.
+        self.img.bind("<MouseWheel>", lambda ev: self.on_wheel(-1 if ev.delta > 0 else 1))
+        self.img.bind("<Button-4>", lambda ev: self.on_wheel(-1))
+        self.img.bind("<Button-5>", lambda ev: self.on_wheel(1))
 
         # Both sliders call on_idx: one changes the slice, the other the
         # overlay strength, and either way the picture is rebuilt the same way.
@@ -542,6 +578,11 @@ class App:
         self.idx = int(self.s_idx.get())
         self.draw()
 
+    def on_wheel(self, step):
+        """Mouse wheel over the slice: one slice per notch. Setting the slider
+        fires on_idx, so the slider and the picture stay in step."""
+        self.s_idx.set(min(max(self.idx + step, 0), self.max_idx()))
+
     def on_angle(self, _=None):
         """Angle slider. Only the 3D panel changes."""
         self.angle = int(self.s_ang.get()) % self.turn.n_angles
@@ -573,18 +614,26 @@ class App:
         # Clamp, because the slider range may not have caught up after a
         # plane change.
         i = min(self.idx, self.max_idx())
-        rgb = overlay_rgb(plane_cut(self.ct, plane, i),
-                          plane_cut(self.gt, plane, i),
-                          plane_cut(self.pr, plane, i),
+        t = plane_cut(self.gt, plane, i)
+        p = plane_cut(self.pr, plane, i) if self.pr is not None else None
+        rgb = overlay_rgb(plane_cut(self.ct, plane, i), t, p,
                           mode, self.s_alpha.get() / 100)
-        self.show(self.img, rgb, display_size(plane, self.nz, self.side, self.z_scale))
+        w, h = display_size(plane, self.nz, self.side, self.z_scale)
+        if h > self.max_h:          # too tall for the screen: shrink, same proportions
+            w, h = max(1, round(w * self.max_h / h)), self.max_h
+        self.show(self.img, rgb, (w, h))
 
         where = {"axial": "z", "coronal": "y", "sagittal": "x"}[plane]
         self.head.configure(text=f"{plane}   {where} = {i}")
 
         # Per-slice table. Only the numbers for THIS cut; the whole-volume
         # counts were built once in __init__.
-        t, p = plane_cut(self.gt, plane, i), plane_cut(self.pr, plane, i)
+        if p is None:
+            lines = [f"this {plane} cut", f"{'':7}{'pixels':>8}"]
+            lines += [f"{name:<7}{int((t == cls).sum()):>8,}"
+                      for cls, name in ((1, "liver"), (2, "tumour"))]
+            self.stat.configure(text="\n".join(lines))
+            return
         lines = [f"this {plane} cut", f"{'':7}{'true':>8}{'pred':>8}{'Dice':>7}"]
         for cls, name in ((1, "liver"), (2, "tumour")):
             d = slice_dice(t, p, cls)
@@ -634,6 +683,9 @@ def save_figures(ct, gt, pr, out_dir, tag, title, z_scale=1.0, dpi=130):
     from matplotlib.patches import Patch
 
     side = ct.shape[1]
+    # without a model (--scan) there is only the truth to draw
+    modes = MODES if pr is not None else ("ground truth",)
+    cut_mode = modes[-1]
     # Centre the axial cut on the tumor if there is one, else on the liver.
     zc = int(np.median(np.where((gt == (2 if (gt == 2).any() else 1)).any(axis=(1, 2)))[0]))
     # matplotlib's aspect = z_scale for the rebuilt planes. See display_size()
@@ -648,15 +700,16 @@ def save_figures(ct, gt, pr, out_dir, tag, title, z_scale=1.0, dpi=130):
     for plane, i, cell in (("axial", zc, gs[:, 0]), ("coronal", side // 2, gs[0, 1]),
                            ("sagittal", side // 2 + 12, gs[1, 1])):
         ax = fig.add_subplot(cell)
+        p = plane_cut(pr, plane, i) if pr is not None else None
         ax.imshow(overlay_rgb(plane_cut(ct, plane, i), plane_cut(gt, plane, i),
-                              plane_cut(pr, plane, i), "difference", 0.55),
+                              p, cut_mode, 0.55),
                   aspect=aspect[plane], interpolation="nearest")
         where = {"axial": "z", "coronal": "y", "sagittal": "x"}[plane]
         ax.set_title(f"{plane}   ({where} = {i})", fontsize=10)
         ax.set_xticks([]); ax.set_yticks([])
     # KEY holds 0-255 colours; matplotlib wants 0.0-1.0, hence the /255.
     fig.legend(handles=[Patch(fc=np.array(c) / 255, label=l)
-                        for c, l in KEY["difference"]],
+                        for c, l in KEY[cut_mode]],
                loc="lower center", ncol=3, frameon=False, fontsize=9.5)
     fig.suptitle(title, fontsize=11.5)
     f1 = out_dir / f"viewer_{tag}_slices.png"
@@ -665,9 +718,9 @@ def save_figures(ct, gt, pr, out_dir, tag, title, z_scale=1.0, dpi=130):
 
     # Second figure: three modes across, two rotation angles down.
     turn = Turntable(gt, pr, z_scale)
-    fig, axes = plt.subplots(2, 3, figsize=(10.2, 6.4))
+    fig, axes = plt.subplots(2, len(modes), figsize=(3.4 * len(modes) + 0.4, 6.4), squeeze=False)
     for r, k in enumerate((0, 9)):          # frame 0 and frame 9 = 0 and 90 degrees
-        for c, mode in enumerate(MODES):
+        for c, mode in enumerate(modes):
             ax = axes[r][c]
             ax.imshow(turn.frames(mode)[k], interpolation="bilinear")
             ax.set_xticks([]); ax.set_yticks([])
@@ -682,13 +735,14 @@ def save_figures(ct, gt, pr, out_dir, tag, title, z_scale=1.0, dpi=130):
     # both plain modes), so dedupe on the colour and shorten the labels:
     # "liver, drawn by the radiologist" -> "liver", "correct: ..." -> "correct".
     seen, handles = set(), []
-    for mode in MODES:
+    for mode in modes:
         for col, lab in KEY[mode]:
             if col not in seen:
                 seen.add(col)
                 handles.append(Patch(fc=np.array(col) / 255, label=lab.split(",")[0].split(":")[0]))
     fig.legend(handles=handles, loc="lower center", ncol=5, frameon=False, fontsize=9.5)
-    fig.suptitle("The same patient stacked into 3D, two viewing angles", fontsize=12)
+    fig.suptitle("The same patient stacked into 3D, two viewing angles" if pr is not None
+                 else "Liver and tumour in 3D", fontsize=12)
     fig.tight_layout(rect=[0, 0.06, 1, 0.95])
     f2 = out_dir / f"viewer_{tag}_3d.png"
     fig.savefig(f2, dpi=dpi, facecolor="white"); plt.close(fig)
@@ -699,37 +753,48 @@ def save_figures(ct, gt, pr, out_dir, tag, title, z_scale=1.0, dpi=130):
 # loading
 # --------------------------------------------------------------------------
 
-def from_nifti(tag, results, fg_only=True):
+def from_export(tag, fg_only=True):
     """Rebuild the volumes from an earlier `view3d --nifti` export.
 
     IN   tag     - e.g. "volume16"
-         results - the results/ directory
          fg_only - drop slices with no liver in the ground truth
 
-    OUT  (ct, gt, pr, z_scale)
+    OUT  (ct, gt, pr, z_scale, folder)   folder is where the export was found,
+         results/nifti/ first, then results/internship_png/
 
     USE CASE
-    --from-nifti. Skips the model and the dataset entirely, so it starts in a
-    second and works on a machine with no GPU, no torch and no LiTS download.
+    --from-export. Skips the model and the dataset entirely, so it starts in a
+    second and works on a machine with no GPU, no torch and no dataset.
     Good for demoing, or for looking at the exact volumes you loaded in Slicer.
     """
     import nibabel as nib
+    from src.config import FORMAT_DIRS, RESULTS_DIR
+    folders = [RESULTS_DIR / FORMAT_DIRS[f] for f in ("nifti", "png")]
+    results = next((d for d in folders if (d / f"view3d_{tag}_ct.nii.gz").exists()), None)
+    if results is None:
+        raise SystemExit(f"no view3d_{tag}_*.nii.gz in {' or '.join(map(str, folders))}\n"
+                         f"run view3d with --nifti first")
     vols = []
     for name in ("ct", "truth", "pred"):
         f = results / f"view3d_{tag}_{name}.nii.gz"
-        if not f.exists():
-            raise SystemExit(f"missing {f}\nrun view3d with --nifti first")
         # NIfTI stores (x, y, z); everything here works in (z, y, x).
-        vols.append(np.transpose(np.asanyarray(nib.load(f).dataobj), (2, 1, 0))
-                    .astype(np.uint8))
-    # The slice thickness view3d baked into the affine when it wrote the file.
-    z = float(nib.load(results / f"view3d_{tag}_ct.nii.gz").affine[2, 2])
+        v = np.transpose(np.asanyarray(nib.load(f).dataobj), (2, 1, 0))
+        if name == "ct" and v.dtype != np.uint8:
+            # an export of a nifti model holds HU, not display grey
+            from src.nifti import scale_hu
+            from src.utils.view3d import DISPLAY_WINDOW
+            v = np.rint(scale_hu(v.astype(np.float32), DISPLAY_WINDOW) * 255)
+        vols.append(v.astype(np.uint8))
+    # The slice thickness view3d baked into the affine, in in-plane pixels. A
+    # png export has 1.0 in-plane; a nifti one has real mm, hence the ratio.
+    aff = nib.load(results / f"view3d_{tag}_ct.nii.gz").affine
+    z = float(aff[2, 2] / aff[0, 0])
     ct, gt, pr = vols
     if fg_only:
         keep = (gt > 0).any(axis=(1, 2))    # one bool per slice
         print(f"[data] keeping {int(keep.sum())} of {len(keep)} slices")
         ct, gt, pr = ct[keep], gt[keep], pr[keep]
-    return ct, gt, pr, z
+    return ct, gt, pr, z, results
 
 
 def load_from_model(a):
@@ -738,13 +803,14 @@ def load_from_model(a):
     IN   a - the parsed argparse namespace (uses .ckpt, .group, .volume,
              .all_slices, .z_scale)
 
-    OUT  (ct, gt, pr, z_scale, tag, title)
+    OUT  (ct, gt, pr, z_scale, tag, title, folder to save figures in)
 
-    This is the normal path. It reuses patient_pairs and build_volume from
-    view3d.py rather than duplicating them, so both tools always segment in
-    exactly the same way.
+    This is the normal path. It reuses the loaders from view3d.py rather than
+    duplicating them, so both tools always segment in exactly the same way.
+    The patient comes from the data the model was trained on: the nifti cache
+    for a nifti model, the internship pngs for a png one.
     """
-    from src.config import get_device, RUNS_DIR, DATA_DIR
+    from src.config import get_device, RUNS_DIR, results_dir
     from src.data import find_pairs, has_foreground
     from src.model import load_checkpoint
     from src.utils.view3d import patient_pairs, build_volume
@@ -762,7 +828,20 @@ def load_from_model(a):
     model, cfg, ck = load_checkpoint(ckpt, device)
     print(f"[load] {ckpt}  arch={cfg.arch}  epoch={ck.get('epoch')}")
 
-    pairs, _, _ = find_pairs(Path(cfg.root_data_dir or DATA_DIR))
+    if cfg.data_format == "nifti":
+        # the nifti cache: real slice thickness instead of the estimate below
+        from src.utils.view3d import nifti_patient, build_volume_nifti, nifti_z_scale
+        key, entry, cache_dir, held, _ = nifti_patient(cfg, a.volume)
+        print(f"[data] {key} (nifti): {entry['n_slices']} slices, "
+              f"{entry['spacing'][2]:.2f} mm   "
+              f"{'held-out test patient' if held else 'WARNING: seen in training'}")
+        print("[run ] segmenting ...")
+        ct, gt, pr, _ = build_volume_nifti(model, cfg, entry, cache_dir, device, a.all_slices)
+        z = a.z_scale or nifti_z_scale(entry, ct.shape[1])
+        return (ct, gt, pr, z, key.replace("-", ""),
+                f"{key}  -  {cfg.arch}  -  nifti  -  {len(ct)} slices", results_dir("nifti"))
+
+    pairs, _, _ = find_pairs(cfg.root_data_dir)
     _, by = patient_pairs(pairs)
     # Reproduce training's patient shuffle from the same seed, so we can warn
     # if this patient was in the training set - it would look great and prove
@@ -785,19 +864,70 @@ def load_from_model(a):
     # slices does not make the remaining ones thicker. See view3d.py for the
     # 320 / n_slices reasoning.
     z = a.z_scale or 320.0 / max(total, 1)
-    return ct, gt, pr, z, key.replace("-", ""), f"{key}  -  {cfg.arch}  -  {len(slices)} slices"
+    return (ct, gt, pr, z, key.replace("-", ""),
+            f"{key}  -  {cfg.arch}  -  {len(slices)} slices", results_dir("png"))
+
+
+def load_scan_only(a):
+    """One NIfTI scan and its labels straight from the .nii.gz - no model.
+
+    IN   a - the parsed arguments (uses .scan, .size, .window, .z_scale)
+    OUT  (ct, gt, None, z_scale, tag, title, folder to save figures in)
+
+    USE CASE
+    --scan. To look at the data itself: what one .nii.gz holds, how the liver
+    and tumours sit in it, how thick the slices are. Every slice is loaded, not
+    only the ones with liver, so the whole scan can be scrolled through.
+    """
+    from src.config import Config, results_dir
+    from src.nifti import find_scan, load_scan, scale_hu
+    from src.utils.view3d import DISPLAY_WINDOW
+
+    img_path, lab_path = find_scan(a.scan, Config().root_nifti_dir)
+    if lab_path is None:
+        raise SystemExit(f"no label file for {img_path.name} (imagesTs scans have none); "
+                         f"the viewer needs one to draw liver and tumour")
+    print(f"[data] reading {img_path} ...")
+    hu, gt, (sz, sy, sx) = load_scan(img_path, lab_path, a.size)
+
+    # what is shown is a window onto the HU, like a radiologist's display:
+    # everything below lo is black, above hi white
+    window = tuple(a.window) if a.window else DISPLAY_WINDOW
+    ct = np.empty(hu.shape, np.uint8)
+    for s in range(0, len(hu), 64):         # in chunks, a scan can be 1 GB of HU
+        ct[s:s + 64] = np.rint(scale_hu(hu[s:s + 64], window) * 255)
+
+    nz, ny, nx = hu.shape
+    vox_ml = sx * sy * sz / 1000
+    print(f"[data] {nx}x{ny} pixels x {nz} slices, voxel {sx:.2f} x {sy:.2f} x {sz:.2f} mm")
+    print(f"[data] HU from {hu.min():.0f} to {hu.max():.0f}, shown through the window {list(window)}")
+    print(f"[data] liver {int((gt > 0).sum()) * vox_ml:.0f} mL, "
+          f"tumour {int((gt == 2).sum()) * vox_ml:.1f} mL")
+    del hu
+    name = img_path.name.replace(".nii.gz", "")
+    title = (f"{name}  -  {nx}x{ny} x {nz} slices  -  {sx:.2f} x {sy:.2f} x {sz:.2f} mm"
+             f"  -  ground truth, no model")
+    return ct, gt, None, sz / sx, name.replace("_", ""), title, results_dir("nifti")
 
 
 def main():
     """Parse the command line, load a patient, then open the window or save PNGs."""
-    from src.config import ROOT
-
     p = argparse.ArgumentParser(description="viewer for one patient")
-    p.add_argument("--group", default="ablation_2070")
+    p.add_argument("--group", default="nifti/baseline",
+                   help="folder under runs/, e.g. nifti/baseline or internship_png/ablation_2070")
     p.add_argument("--ckpt", default=None)
     p.add_argument("--volume", default=None)
-    p.add_argument("--from-nifti", metavar="VOL", default=None,
-                   help="skip the model, reuse results/view3d_volume<VOL>_*.nii.gz")
+    p.add_argument("--scan", metavar="N_OR_PATH", default=None,
+                   help="no model: show one NIfTI scan and its labels, e.g. --scan 16 "
+                        "for data/Task03_Liver/imagesTr/liver_16.nii.gz, or a path")
+    p.add_argument("--size", type=int, default=None,
+                   help="--scan only: resize slices to this, e.g. 256; default native 512")
+    p.add_argument("--window", type=float, nargs=2, default=None, metavar=("LO", "HI"),
+                   help="--scan only: HU range shown, default -160 240 (liver). "
+                        "Try -1000 1000 to see the whole body, 300 1500 for bone")
+    p.add_argument("--from-export", metavar="VOL", default=None,
+                   help="skip the model, reuse an earlier  view3d --nifti  export "
+                        "(results/*/view3d_volume<VOL>_*.nii.gz)")
     p.add_argument("--all-slices", action="store_true",
                    help="also load slices with no liver in the ground truth")
     p.add_argument("--angles", type=int, default=N_ANGLES,
@@ -806,21 +936,23 @@ def main():
     p.add_argument("--save", action="store_true", help="write PNGs, no window")
     a = p.parse_args()
 
-    results = Path(ROOT) / "results"
-    results.mkdir(parents=True, exist_ok=True)
-
-    # Two ways in: straight from the NIfTI export, or by running the model.
-    if a.from_nifti:
-        tag = a.from_nifti if str(a.from_nifti).startswith("volume") else f"volume{a.from_nifti}"
-        ct, gt, pr, z = from_nifti(tag, results, not a.all_slices)
+    # Three ways in: the raw scan with no model, an earlier export, or by
+    # running the model.
+    if a.scan:
+        ct, gt, pr, z, tag, title, results = load_scan_only(a)
+        z = a.z_scale or z
+    elif a.from_export:
+        tag = a.from_export if str(a.from_export).startswith("volume") else f"volume{a.from_export}"
+        ct, gt, pr, z, results = from_export(tag, not a.all_slices)
         z = a.z_scale or z          # let --z-scale override what the file said
         title = f"{tag}  -  liver and tumour segmentation"
     else:
-        ct, gt, pr, z, tag, title = load_from_model(a)
+        ct, gt, pr, z, tag, title, results = load_from_model(a)
 
-    s = volume_stats(gt, pr)
-    print(f"[vol ] correct {s['correct']:,}  missed {s['missed']:,}  "
-          f"false {s['false']:,}")
+    if pr is not None:
+        s = volume_stats(gt, pr)
+        print(f"[vol ] correct {s['correct']:,}  missed {s['missed']:,}  "
+              f"false {s['false']:,}")
 
     if a.save:
         save_figures(ct, gt, pr, results, tag, title, z)

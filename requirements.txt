@@ -4,5 +4,7 @@ numpy
 pillow
 matplotlib
 scikit-learn
+nibabel
+scipy
 tqdm
 kaggle

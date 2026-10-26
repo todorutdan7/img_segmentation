@@ -295,12 +295,15 @@ def foreground_index(pairs, cache_path: Path, verbose=True):
 
 # divide dataset into train, validation, test
 
-def split_pairs(pairs, val_fraction, test_fraction, seed, by_volume=True):
+def split_pairs(pairs, val_fraction, test_fraction, seed, by_volume=True, key=None):
 
     # pairs - list of (image, mask) tuples
     # val_fraction 0.15
     # test_fraction 0.15
     # by volume is the correct way so that no leakage occur
+    # key - how to get the volume id of one entry. default reads it from the
+    # png filename; the nifti loader passes its own, with the same "volume-16"
+    # ids, so both formats put the same patients in test
 
 
     rng = random.Random(seed)
@@ -318,9 +321,10 @@ def split_pairs(pairs, val_fraction, test_fraction, seed, by_volume=True):
 
 
     # create a dict grouping all slice indices with their respective volume ID
+    key = key or (lambda p: volume_id(p[0]))
     by_vol = {}
-    for i, (ip, _) in enumerate(pairs):
-        by_vol.setdefault(volume_id(ip), []).append(i)
+    for i, p in enumerate(pairs):
+        by_vol.setdefault(key(p), []).append(i)
     # vols holds [{volume0 : volume0_slices}, {volume1 : volume1_slices, ....]
     vols = sorted(by_vol)
     # shuffle randomly
@@ -357,17 +361,33 @@ def class_pixel_counts(dataset, max_samples=200):
 # create DataLoader objects
 def get_dataloaders(cfg: Config, verbose: bool = True):
 
-    # data directory
-    data_dir = Path(cfg.root_data_dir)
-    # image mask tuple, image directory, mask directory
-    pairs, img_dir, mask_dir = find_pairs(data_dir)
-    # size of pairs list
-    n_all = len(pairs)
+    if cfg.data_format == "nifti":
+        # one entry per slice, ("volume-16", 402), read from the npy cache that
+        # src/nifti.py builds out of the .nii.gz files. skip_empty is applied
+        # in there, from the cache index
+        from src.nifti import nifti_slices, NiftiSliceDataset
+        pairs, n_all, index, cache_dir = nifti_slices(cfg, verbose)
+        key = lambda p: p[0]
+        sources = [f"[data] nifti from {cfg.root_nifti_dir}",
+                   f"[data] slices from {cache_dir}  HU window {list(cfg.hu_window)}"]
+        mk = lambda p, aug: NiftiSliceDataset(p, cache_dir, index, aug, cfg.liver_only,
+                                              cfg.hu_window)
+    else:
+        # data directory
+        data_dir = Path(cfg.root_data_dir)
+        # image mask tuple, image directory, mask directory
+        pairs, img_dir, mask_dir = find_pairs(data_dir)
+        # size of pairs list
+        n_all = len(pairs)
 
-    # skip empty true from config, filter empty slices
-    if cfg.skip_empty:
-        fg = foreground_index(pairs, data_dir / "foreground_index.json", verbose)
-        pairs = [p for i, p in enumerate(pairs) if i in fg]
+        # skip empty true from config, filter empty slices
+        if cfg.skip_empty:
+            fg = foreground_index(pairs, data_dir / "foreground_index.json", verbose)
+            pairs = [p for i, p in enumerate(pairs) if i in fg]
+        key = None
+        sources = [f"[data] images from {img_dir}", f"[data] masks  from {mask_dir}"]
+        # wrap each set of pairs into a LiTSDataset instance
+        mk = lambda p, aug: LiTSDataset(p, cfg.image_size, aug, cfg.liver_only)
 
     # if max samples = 500 this will select random 500 pairs so we can run a quick test
     if cfg.max_samples and len(pairs) > cfg.max_samples:
@@ -375,7 +395,7 @@ def get_dataloaders(cfg: Config, verbose: bool = True):
         pairs = sorted(rng.sample(pairs, cfg.max_samples))
 
     # train, validation, test
-    split = split_pairs(pairs, cfg.val_fraction, cfg.test_fraction, cfg.seed, cfg.split_by_volume)
+    split = split_pairs(pairs, cfg.val_fraction, cfg.test_fraction, cfg.seed, cfg.split_by_volume, key)
 
     # split by volume
     if cfg.split_by_volume:
@@ -384,8 +404,6 @@ def get_dataloaders(cfg: Config, verbose: bool = True):
         tr, va, te = split
         vols, vol_sets = None, None
 
-    # wrap each set of pairs into a LiTSDataset instance
-    mk = lambda p, aug: LiTSDataset(p, cfg.image_size, aug, cfg.liver_only)
     # augmentation on only for train set , validation and test are kept original
     train_set, val_set, test_set = mk(tr, cfg.augment), mk(va, False), mk(te, False)
 
@@ -405,8 +423,8 @@ def get_dataloaders(cfg: Config, verbose: bool = True):
 
     # prints
     if verbose:
-        print(f"[data] images from {img_dir}")
-        print(f"[data] masks  from {mask_dir}")
+        for line in sources:
+            print(line)
         kept = f"{len(pairs):,}/{n_all:,}" if len(pairs) != n_all else f"{n_all:,}"
         print(f"[data] {kept} pairs used -> train={len(tr):,} val={len(va):,} test={len(te):,}")
         if vols is not None:

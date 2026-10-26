@@ -15,12 +15,17 @@ This script is the BATCH version it writes files and exits. Its sibling
 
 HOW TO RUN IT
 
-    python -m src.utils.view3d --group ablation_2070                 # first test patient
-    python -m src.utils.view3d --group ablation_2070 --volume 16     # a specific patient
-    python -m src.utils.view3d --group ablation_2070 --list          # which patients exist
-    python -m src.utils.view3d --group ablation_2070 --nifti         # also export for 3D Slicer
+    python -m src.utils.view3d                          # first test patient, runs/nifti/baseline
+    python -m src.utils.view3d --volume 16              # a specific patient
+    python -m src.utils.view3d --list                   # which patients exist
+    python -m src.utils.view3d --nifti                  # also export for 3D Slicer
+    python -m src.utils.view3d --group internship_png/ablation_2070 --volume 16
 
-WRITES into results/
+The data comes from whatever the model was trained on. A nifti model reads the
+patient from the nifti cache, with the real slice thickness from the scan
+header; a png model reads the internship's png slices.
+
+WRITES into results/nifti/ or results/internship_png/
 
     view3d_<patient>_slices.png     axial / coronal / sagittal cuts, ground truth on top, prediction below
     view3d_<patient>_surfaces.png   liver and tumor as 3D surfaces, 3 angles
@@ -51,7 +56,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from src.config import get_device, CLASS_NAMES
+from src.config import get_device, CLASS_NAMES, results_dir
 from src.data import find_pairs, load_mask, volume_id
 from src.model import load_checkpoint
 
@@ -175,6 +180,80 @@ def build_volume(model, slices, device, image_size, stride=1, verbose=True):
     if verbose:
         print(f"[run ] volumes held in memory: {mb:.0f} MB")
     return ct, gt, pr          # axis order (z, y, x)
+
+
+# How the CT is SHOWN, not what the model gets: a standard liver window
+# (level 40, width 400 HU). The png export's per-slice stretch makes every
+# patient a different brightness; a fixed window makes them comparable.
+DISPLAY_WINDOW = (-160, 240)
+
+
+def test_patients(keys, cfg):
+    """the patients training held out: same sort, same seeded shuffle, same cut"""
+    import random
+    shuffled = sorted(keys)
+    random.Random(cfg.seed).shuffle(shuffled)
+    return shuffled[:max(1, round(len(shuffled) * cfg.test_fraction))]
+
+
+def nifti_patient(cfg, want=None):
+    """one labelled patient from the nifti slice cache
+
+    IN   cfg  - the model's config, a nifti-trained one
+         want - 16, "16" or "volume-16"; None = the first test patient
+    OUT  (key, index entry, cache_dir, held_out, every labelled entry by key)
+    """
+    from src.nifti import nifti_slices
+    _, _, volumes, cache_dir = nifti_slices(cfg, verbose=False)   # builds the cache if missing
+    train = {k: e for k, e in volumes.items() if e["split"] == "train"}
+    test = test_patients(train, cfg)
+    if want is None:
+        key = test[0]
+    else:
+        key = want if str(want).startswith("volume") else f"volume-{want}"
+    if key not in train:
+        raise SystemExit(f"no such labelled patient: {key}")
+    return key, train[key], cache_dir, key in test, train
+
+
+def nifti_z_scale(entry, side):
+    """slice thickness in units of one in-plane pixel at this resolution, from
+    the nifti header - the real value the png path has to guess"""
+    return entry["spacing"][2] / (entry["spacing"][0] * entry["shape"][0] / side)
+
+
+@torch.no_grad()
+def build_volume_nifti(model, cfg, entry, cache_dir, device, all_slices=False,
+                       stride=1, batch=16, verbose=True):
+    """build_volume for the nifti cache: segment one patient, stack it in 3D
+
+    IN   cfg   - the model's config; its hu_window turns HU into the model's
+                 input, exactly as NiftiSliceDataset does in training
+         entry - the patient's index entry, from nifti_patient()
+         all_slices - keep slices whose truth has no liver
+    OUT  ct (display, uint8 through DISPLAY_WINDOW), gt, pr  - (z, y, x)
+         zs - which cache slices they are, for the HU export
+    """
+    from src.nifti import open_volume, scale_hu
+    img, lab = open_volume(cache_dir, entry)
+    zs = [z for z in range(entry["n_slices"])
+          if all_slices or entry["liver_px"][z] + entry["tumor_px"][z]][::stride]
+    n, side = len(zs), img.shape[1]
+    ct = np.empty((n, side, side), np.uint8)
+    gt = np.empty((n, side, side), np.uint8)
+    pr = np.empty((n, side, side), np.uint8)
+    # a batch at a time, not one slice: the cache is fast enough that the
+    # GPU would otherwise sit idle between slices
+    for s in range(0, n, batch):
+        chunk = zs[s:s + batch]
+        hu = img[chunk].astype(np.float32)
+        x = torch.from_numpy((scale_hu(hu, cfg.hu_window) - 0.5) / 0.5)    # mean 0.5, std 0.5
+        pr[s:s + len(chunk)] = model(x[:, None].to(device)).argmax(1).cpu().numpy()
+        ct[s:s + len(chunk)] = np.rint(scale_hu(hu, DISPLAY_WINDOW) * 255)
+        gt[s:s + len(chunk)] = lab[chunk]
+        if verbose and (s // batch) % 8 == 7:
+            print(f"    {s + len(chunk)}/{n} slices")
+    return ct, gt, pr, zs
 
 
 def add_surface(ax, vol, cls, color, alpha, spacing, step):
@@ -397,10 +476,11 @@ def main():
     arguments plus files on disk, and all its output is files in results/
     plus what it prints.
     """
-    from src.config import RUNS_DIR, ROOT, DATA_DIR
+    from src.config import RUNS_DIR
 
     p = argparse.ArgumentParser(description="3D view of one patient's segmentation")
-    p.add_argument("--group", default="ablation_2070")
+    p.add_argument("--group", default="nifti/baseline",
+                   help="folder under runs/, e.g. nifti/baseline or internship_png/ablation_2070")
     p.add_argument("--ckpt", default=None)
     p.add_argument("--volume", default=None,
                    help="patient number, e.g. 16. default: the first test patient")
@@ -415,10 +495,9 @@ def main():
                    help="marching-cubes step size; higher = coarser but faster")
     p.add_argument("--z-scale", type=float, default=None,
                    help="through-plane spacing in units of the in-plane pixel. "
-                        "Default 320/n_slices: the export is 256x256 at roughly "
-                        "1.4 mm, and an abdominal scan covers about 450 mm, so a "
-                        "689-slice patient has thin slices and a 75-slice one has "
-                        "thick ones. A fixed value cannot be right for both")
+                        "nifti: read from the scan header. png: estimated as "
+                        "320/n_slices, since the export is 256x256 at roughly "
+                        "1.4 mm and an abdominal scan covers about 450 mm")
     p.add_argument("--nifti", action="store_true", help="also write a .nii.gz for 3D Slicer")
     p.add_argument("--dpi", type=int, default=110)
     a = p.parse_args()
@@ -439,8 +518,11 @@ def main():
     print(f"[load] arch={cfg.arch}  epoch={ck.get('epoch')}  "
           f"params={model.count_parameters():,}")
 
+    if cfg.data_format == "nifti":
+        return main_nifti(a, model, cfg, device)
+
     # ---- 2. find the data ------------------------------------------------
-    pairs, _, _ = find_pairs(Path(cfg.root_data_dir or DATA_DIR))
+    pairs, _, _ = find_pairs(cfg.root_data_dir)
     _, by = patient_pairs(pairs)        # dict form: every patient
 
     if a.list:
@@ -492,8 +574,7 @@ def main():
         print(f"   {name:<10} true {g:>9,} vox   predicted {pp:>9,} vox   Dice {d:.4f}")
 
     # ---- 7. work out the voxel spacing ----------------------------------
-    out = Path(ROOT) / "results"
-    out.mkdir(parents=True, exist_ok=True)
+    out = results_dir("png")
     tag = key.replace("-", "")          # "volume-16" -> "volume16", for filenames
 
     # The 2D PNG export threw away the original spacing, so nothing in the
@@ -547,6 +628,75 @@ def main():
                 nib.save(nib.Nifti1Image(np.transpose(vol, (2, 1, 0)), aff), f)
                 print(f"[saved] {f}")
             print("[nii ] open the ct file in 3D Slicer, then load pred as a segmentation")
+
+
+def main_nifti(a, model, cfg, device):
+    """main() for a patient read from the nifti slice cache.
+
+    Same figures as the png path, two things better: the slice thickness comes
+    from the header instead of the 320/n_slices guess, and --nifti writes the
+    CT in Hounsfield units with the true voxel size in mm, so 3D Slicer shows
+    the patient at real scale and its window/level presets work.
+    """
+    from src.nifti import open_volume
+
+    key, entry, cache_dir, held_out, train = nifti_patient(cfg, a.volume)
+    if a.list:
+        print(f"\n{len(train)} labelled patients (nifti):")
+        for k in sorted(train, key=lambda s: int(s.split("-")[1])):
+            e = train[k]
+            print(f"   {k:<14}{e['n_slices']:>5} slices  {e['spacing'][2]:5.2f} mm"
+                  f"  tumour {e['tumor_ml']:7.1f} mL")
+        return
+    sp = entry["spacing"]
+    print(f"[data] {key}: {entry['n_slices']} slices, {sp[2]:.2f} mm thick, {sp[0]:.3f} mm pixels"
+          f"   ({'held-out test patient' if held_out else 'WARNING: this patient was in training'})")
+    print(f"[data] model input: HU window {list(cfg.hu_window)}")
+
+    print("[run ] segmenting the whole volume ...")
+    ct, gt, pr, zs = build_volume_nifti(model, cfg, entry, cache_dir, device,
+                                        a.all_slices, a.stride)
+    print(f"[run ] volume shape {pr.shape}  (z, y, x)   "
+          f"{'every' if a.all_slices else 'liver-containing'} slice"
+          + (f", every {a.stride}th" if a.stride > 1 else ""))
+
+    print("\nper-volume overlap:")
+    for name, g, pp, d in volume_stats(gt, pr):
+        print(f"   {name:<10} true {g:>9,} vox   predicted {pp:>9,} vox   Dice {d:.4f}")
+
+    out = results_dir("nifti")
+    tag = key.replace("-", "")
+    side = ct.shape[1]
+    z_scale = a.z_scale or nifti_z_scale(entry, side)
+    print(f"[data] through-plane spacing {z_scale:.2f} in-plane pixels (from the header)")
+    spacing = (z_scale * a.stride, 1.0, 1.0)
+    title = (f"{key} - {cfg.arch} - nifti   "
+             f"{'held-out test patient' if held_out else 'seen in training'}")
+
+    slices_figure(ct, gt, pr, out / f"view3d_{tag}_slices.png", title, a.dpi)
+    try:
+        surfaces_figure(gt, pr, out / f"view3d_{tag}_surfaces.png",
+                        spacing, a.step, title, a.dpi)
+    except ImportError:
+        print("[3d  ] scikit-image not installed, skipping the surface figure")
+    except MemoryError:
+        print(f"[3d  ] out of memory building the surface. Try --stride "
+              f"{max(2, a.stride * 2)} or --step {a.step + 2}")
+
+    if a.nifti:
+        import nibabel as nib
+        img, _ = open_volume(cache_dir, entry)
+        # mm per cached pixel: the scan's pixel size times how much it was shrunk
+        aff = np.diag([sp[0] * entry["shape"][0] / side, sp[1] * entry["shape"][1] / side,
+                       sp[2] * a.stride, 1.0])
+        # the cache is (z, y, x) of a RAS volume, so reversing the axes gives
+        # back (x, y, z) RAS and a positive diagonal affine is the right one
+        for name, vol in [("ct", np.asarray(img[zs])), ("truth", gt), ("pred", pr)]:
+            f = out / f"view3d_{tag}_{name}.nii.gz"
+            nib.save(nib.Nifti1Image(np.transpose(vol, (2, 1, 0)), aff), f)
+            print(f"[saved] {f}")
+        print("[nii ] ct is in HU at true scale: open it in 3D Slicer, then load pred "
+              "as a segmentation")
 
 
 

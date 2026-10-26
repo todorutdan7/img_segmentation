@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from src.config import Config, ARCH_NAMES, get_device
+from src.config import Config, ARCH_NAMES, RESOLUTIONS, get_device
 from src.data import get_dataloaders
 from src.model import build_model
 from src.losses import build_loss
@@ -207,15 +207,25 @@ def train(cfg: Config, verbose=True):
 
 def parse_args(argv=None):
     d = Config()
-    p = argparse.ArgumentParser(description="LiTS liver/tumour segmentation with Attention U-Net")
+    p = argparse.ArgumentParser(description="liver and tumour segmentation on CT")
 
     p.add_argument("--run-name", default=None)
-    p.add_argument("--group", default=d.group)
+    p.add_argument("--group", default=d.group,
+                   help="runs are saved in runs/<nifti|internship_png>/<group>/<run-name>")
     p.add_argument("--arch", choices=ARCH_NAMES, default=d.arch,
                    help="attention_unet (default) or unet, the ablation baseline")
 
-    p.add_argument("--data-dir", default=d.data_dir)
-    p.add_argument("--image-size", type=int, default=d.image_size)
+    p.add_argument("--data-format", choices=["nifti", "png"], default=d.data_format,
+                   help="nifti = MSD Task03_Liver (default), png = the internship's export")
+    p.add_argument("--nifti-dir", default=d.nifti_dir, help="default data/Task03_Liver")
+    p.add_argument("--hu-window", type=float, nargs=2, default=d.hu_window,
+                   metavar=("LO", "HI"), help="nifti: HU clipped to this and mapped to 0..1")
+    p.add_argument("--data-dir", default=d.data_dir, help="png only, default data/internship_png")
+    p.add_argument("--resolution", choices=list(RESOLUTIONS), default=None,
+                   help="full=512 (default for nifti) half=256 quarter=128 eighth=64. "
+                        "Lower it, or --batch-size, when the GPU is too small")
+    p.add_argument("--image-size", type=int, default=None,
+                   help="any other slice size in pixels; --resolution is simpler")
     p.add_argument("--batch-size", type=int, default=d.batch_size)
     p.add_argument("--num-workers", type=int, default=d.num_workers)
     p.add_argument("--val-fraction", type=float, default=d.val_fraction)
@@ -255,7 +265,11 @@ def parse_args(argv=None):
 
     a = p.parse_args(argv)
     cfg = Config(
-        data_dir=a.data_dir, image_size=a.image_size,
+        data_dir=a.data_dir, data_format=a.data_format, nifti_dir=a.nifti_dir,
+        hu_window=tuple(a.hu_window),
+        # the png export is 256 px, so above that it would only be upsampled
+        image_size=(RESOLUTIONS[a.resolution] if a.resolution else a.image_size
+                    or (d.image_size if a.data_format == "nifti" else 256)),
         batch_size=a.batch_size, num_workers=a.num_workers,
         val_fraction=a.val_fraction, test_fraction=a.test_fraction,
         augment=not a.no_augment, liver_only=a.liver_only,

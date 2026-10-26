@@ -11,11 +11,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
-from src.config import DATA_DIR, ROOT, CLASS_NAMES, MASK_VALUES as MASK_VALUES_REF
+from src.config import Config, CLASS_NAMES, MASK_VALUES as MASK_VALUES_REF, results_dir
 from src.data import find_pairs, load_mask, mask_raw_values, volume_id
 
 OVERLAY = [(0, 0, 0, 0), (0.20, 0.55, 0.95, 0.60), (0.95, 0.25, 0.20, 0.85)]
-RESULTS_DIR = ROOT / "results"
+RESULTS_DIR = results_dir("png")      # the internship png export
 
 # Minimum tumour pixels before a slice counts as tumour-bearing.
 #
@@ -443,7 +443,7 @@ def main():
                    help="figure resolution; falls back to 90 then 70 on MemoryError")
     a = p.parse_args()
 
-    pairs, img_dir, mask_dir = find_pairs(Path(a.data_dir or DATA_DIR))
+    pairs, img_dir, mask_dir = find_pairs(Path(a.data_dir) if a.data_dir else Config().root_data_dir)
     print(f"[data] {len(pairs):,} pairs found")
 
     sample = 0 if a.full else a.sample

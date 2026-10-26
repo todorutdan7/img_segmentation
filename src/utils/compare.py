@@ -1,6 +1,7 @@
 """Compare the runs in a group side by side.
 
-    python -m src.utils.compare --group ablation
+    python -m src.utils.compare --group nifti/baseline
+    python -m src.utils.compare --group internship_png/ablation_2070
 
 Reads every history.json / metrics_test.json under runs/<group>/ and writes a
 comparison figure and table. Flags unequal training budgets loudly, because a
@@ -147,10 +148,11 @@ def figure(runs, out_path, dpi=110):
 
 
 def main():
-    from src.config import RUNS_DIR, ROOT
+    from src.config import RUNS_DIR, results_dir
 
     p = argparse.ArgumentParser(description="compare the runs in a group")
-    p.add_argument("--group", default="ablation")
+    p.add_argument("--group", default="nifti/baseline",
+                   help="folder under runs/, e.g. nifti/baseline or internship_png/ablation_2070")
     p.add_argument("--dpi", type=int, default=110)
     a = p.parse_args()
 
@@ -165,11 +167,12 @@ def main():
     txt = table(runs)
     print(txt)
 
-    out = Path(ROOT) / "results"
-    out.mkdir(parents=True, exist_ok=True)
-    (out / f"comparison_{a.group}.txt").write_text(txt, encoding="utf-8")
-    print(f"\n[saved] {out / f'comparison_{a.group}.txt'}")
-    figure(runs, out / f"comparison_{a.group}.png", a.dpi)
+    # results/nifti/comparison_baseline.* or results/internship_png/comparison_ablation_2070.*
+    out = results_dir("png" if a.group.split("/")[0] == "internship_png" else "nifti")
+    name = a.group.rstrip("/").split("/")[-1]
+    (out / f"comparison_{name}.txt").write_text(txt, encoding="utf-8")
+    print(f"\n[saved] {out / f'comparison_{name}.txt'}")
+    figure(runs, out / f"comparison_{name}.png", a.dpi)
 
 
 if __name__ == "__main__":

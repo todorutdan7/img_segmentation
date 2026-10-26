@@ -1,6 +1,8 @@
 """Does the whole thing actually work? One command, no training.
 
-    python -m src.utils.selftest
+    python -m src.utils.selftest unet                     # nifti, largest cache built so far
+    python -m src.utils.selftest unet --resolution full   # nifti at 512
+    python -m src.utils.selftest unet --png               # the internship png export
 
 Checks the environment, the import path, the model, a real batch of data, a
 forward pass, the loss, the metrics and the attention read-out. Every step
@@ -77,11 +79,27 @@ def main():
                 f"           env={env}  python={sys.executable}")
 
     import torch
-    from src.config import Config, get_device, IN_CHANNELS
-    arch = sys.argv[1] if len(sys.argv) > 1 else Config().arch
-    cfg = Config(arch=arch, max_samples=40, batch_size=2, num_workers=0)
+    import argparse
+    from src.config import Config, get_device, IN_CHANNELS, ARCH_NAMES, RESOLUTIONS
+    from src.nifti import cache_sizes
+    ap = argparse.ArgumentParser(description="check the whole pipeline, no training")
+    ap.add_argument("arch", nargs="?", default=Config().arch, choices=ARCH_NAMES)
+    ap.add_argument("--png", action="store_true", help="test on the internship png export")
+    ap.add_argument("--resolution", choices=list(RESOLUTIONS), default=None,
+                    help="nifti only. default: the largest slice cache already built, so "
+                         "the test never starts a long cache build by itself")
+    a = ap.parse_args()
+    if a.png:
+        size = 256
+    elif a.resolution:
+        size = RESOLUTIONS[a.resolution]
+    else:
+        size = (cache_sizes() or [Config().image_size])[-1]
+    cfg = Config(arch=a.arch, data_format="png" if a.png else "nifti", image_size=size,
+                 max_samples=40, batch_size=2, num_workers=0)
     device = get_device()
-    print(f"\n    architecture under test: {cfg.arch}")
+    print(f"\n    architecture under test: {cfg.arch}   data format: {cfg.data_format}"
+          f"   slices {cfg.image_size}x{cfg.image_size}")
 
     # ---- 3. model ---------------------------------------------------------
     @check("model builds and matches the diagram's parameter count")
@@ -133,7 +151,7 @@ def main():
         return "  ".join(f"{tuple(a.shape)[-2:]}" for a in maps) + "  all in (0,1)"
 
     # ---- 6. real data -----------------------------------------------------
-    @check("dataloaders read real LiTS pairs and split by volume")
+    @check(f"dataloaders read real LiTS {cfg.data_format} slices and split by volume")
     def _():
         from src.data import get_dataloaders
         tr, va, te, counts = get_dataloaders(cfg, verbose=False)

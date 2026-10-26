@@ -1,122 +1,185 @@
-# Liver and Tumour Segmentation from CT Slices
+# Liver and Tumour Segmentation on CT (NIfTI)
 
-Semantic segmentation of liver and liver tumours in abdominal CT slices, on the
-LiTS dataset. Every pixel is labelled background, liver or tumour.
+Segment the liver and liver tumours in abdominal CT scans. Every pixel is
+labelled background, liver or tumour. Everything is written from scratch in
+PyTorch; no segmentation framework is used.
 
-Two architectures are implemented and compared under identical conditions: a
-plain **U-Net** and an **Attention U-Net**. No segmentation framework is used;
-everything is written from scratch in PyTorch.
+The data is **MSD Task03_Liver**: the 131 LiTS patients as NIfTI files, in
+Hounsfield units. The framework, the models and the 3D viewer come from the
+internship, which worked on a PNG export of the same patients (see
+[Internship](#internship-png-export) at the end).
 
-## Results
+## Project layout
 
-| Model | Parameters | fg Dice | Liver Dice | Tumour Dice | Train time |
-|---|---:|---:|---:|---:|---:|
-| U-Net (baseline) | 7,762,531 | 0.8222 | 0.9101 | **0.7343** | 93 min |
-| Attention U-Net | 7,894,783 | **0.8247** | **0.9172** | 0.7322 | 112 min |
+```
+src/                     the framework: data loading, models, training, evaluation, viewer
+data/                    datasets (not in git)
+  Task03_Liver/            the NIfTI dataset
+  nifti_cache_512/         the same scans cut into .npy slices, built by src.nifti
+                           (nifti_cache_256/ for half resolution)
+  internship_png/          the internship's PNG export
+runs/                    trained models, one folder per run
+  nifti/                   new models
+  internship_png/          ablation_2070/, ablation_laptop/
+results/                 reports and figures
+  nifti/                   dataset report, old models on NIfTI, viewer figures
+  internship_png/          internship results, 3D Slicer files in slicer/
+report/internship/       internship notebook and technical report (LaTeX + PDF)
+architecture/            diagrams of the two models
+```
 
-Both trained 40 epochs on the same patient-level split with the same seed, on an
-RTX 2070. The 132,252-parameter difference is exactly the four attention gates,
-so nothing else varies between the two.
+## The data
 
-**The difference is not meaningful.** It is smaller than the variation between
-two runs of the *same* architecture (measured at 0.0031-0.0053 fg Dice across
-machines), and it changes sign depending on the metric.
+One `.nii.gz` file is one whole CT scan: all slices stacked in 3D, plus a header
+with the real size of a voxel in mm. Each voxel is a **Hounsfield unit** (HU):
+air -1000, water 0, liver about 100, bone 1000 and up.
 
-The harder finding is the tumour class: precision 0.816 but recall **0.664**, and
-**154 of 582** test slices containing a lesion scored a Dice of exactly zero.
+```
+data/Task03_Liver/
+  imagesTr/liver_0.nii.gz ... liver_130.nii.gz   131 CT scans, 512x512, 74-987 slices
+  labelsTr/liver_0.nii.gz ... liver_130.nii.gz   131 label maps: 0 background, 1 liver, 2 tumour
+  imagesTs/                                      70 scans WITHOUT labels - not used
+  dataset.json                                   short description
+```
+
+Download (28.9 GB, CC BY-SA 4.0):
+
+```bash
+curl -L -o data/Task03_Liver.tar https://msd-for-monai.s3-us-west-2.amazonaws.com/Task03_Liver.tar
+tar -xf data/Task03_Liver.tar -C data         # MD5 a90ec6c4aa7f6a3d087205e23d4e6397
+```
+
+The full study (spacing, HU per class, lesion sizes, split) is in
+`results/nifti/dataset_report.txt`. In short: slices are 0.7-5 mm thick, liver
+is 2.2% of voxels and tumour 0.12%, and two thirds of the 1,037 lesions are
+smaller than 1 mL.
+
+## How the data reaches the model
+
+1. **Once:** `python -m src.nifti` cuts every scan into its 2D slices and saves
+   them as `.npy` in `data/nifti_cache_512/` (~45 min, resumable). Values stay
+   in HU. This exists because a `.nii.gz` must be unpacked whole, up to 1 GB,
+   to read a single slice. `--resolution half` makes a 256 px cache instead.
+2. **Every training step:** a slice is read from the cache, its HU are clipped
+   to the window **[-17, 201]** (the range of liver and tumour voxels) and
+   scaled to 0..1, then augmented and normalised.
+
+Slices with no liver are skipped, as before (`skip_empty`). The split is by
+patient with seed 42: 91 train, 20 validation, 20 test.
+
+## Usage
+
+Run everything from the project root with `python -m`, in the `seg` conda env.
+
+```bash
+python -m src.utils.viewer --scan 16                  # look at a scan + its labels, no model
+
+python -m src.nifti                                   # build the 512 slice cache, once
+python -m src.utils.nifti_report                      # dataset report -> results/nifti/
+python -m src.utils.selftest unet                     # 9 checks before training
+
+python -m src.train --arch unet                       # 512 px -> runs/nifti/baseline/unet_<time>/
+python -m src.train --arch attention_unet
+python -m src.utils.compare --group nifti/baseline    # side-by-side table and figure
+
+python -m src.utils.reeval --group nifti/baseline     # re-score, incl. Dice per patient
+python -m src.utils.viewer --volume 16                # a trained model on one patient, 2D + 3D
+python -m src.utils.view3d --volume 16 --nifti        # figures + .nii.gz for 3D Slicer
+```
+
+The data format defaults to NIfTI. `--group` picks the folder under `runs/`;
+`train` saves into `runs/nifti/<group>/` (default group `baseline`).
+
+**Resolution.** Training defaults to the full 512x512. `--resolution
+full|half|quarter|eighth` (512/256/128/64 px) on `train` and `src.nifti`; on a
+small GPU use e.g. `--resolution half` for both. A smaller cache is made from a
+larger one in about a minute; otherwise the NIfTI files are read (~45 min).
+Measured on an RTX 3050 Laptop (4 GB), one training step with mixed precision:
+
+| | disk (all slices) | U-Net | Attention U-Net |
+|---|---:|---|---|
+| full, 512 | ~46 GB | batch ≤ 8 (3.1 GB) | batch ≤ 4 (1.9 GB) |
+| half, 256 | ~11.5 GB | batch 16 fits (1.6 GB) | batch 16 fits (1.9 GB) |
+| quarter, 128 | ~2.9 GB | trivial | trivial |
+
+At 512 a step costs about 4x the time per slice of 256. Past 4 GB Windows moves
+GPU memory into system RAM and training slows ~10x instead of failing, so watch
+the time per epoch.
+
+**The viewer** has two uses:
+- `viewer --scan 16` shows the data only: `liver_16.nii.gz` and its labels, all
+  slices, at 512, with no model. A slider scrolls through the scan, the planes
+  show it from the front and side, and the right panel spins the liver and
+  tumours in 3D. `--window -1000 1000` changes which HU are shown.
+- `viewer --volume 16` with a trained model runs it on every slice of that
+  patient and shows CT, truth and prediction, and where they disagree. Only
+  slices containing liver are loaded; `--all-slices` loads all.
+
+For NIfTI the slice thickness is read from the scan header, and `view3d --nifti`
+exports the CT in HU at true voxel size. `viewer --from-export 16` reopens such
+an export without the model.
+
+**Adding a model.** Add the class to `ARCHES` in `src/model.py` and its name to
+`ARCH_NAMES` in `src/config.py`. The self-test's parameter check compares
+against `src/utils/diagram.py`, which only knows the two U-Nets.
 
 ## Why not accuracy
 
-A model predicting background everywhere scores **93.4%** pixel accuracy on this
-test set, because tumour is 0.12% of pixels and liver 2.15%. The trained model
-scores 98.9%. That 5-point difference corresponds to foreground Dice going from
-0.000 to 0.825. Model selection is therefore done on **mean foreground Dice**,
-never on accuracy or loss.
+A model predicting background everywhere scores about 93% pixel accuracy,
+because tumour is 0.12% of pixels and liver about 2%. Model selection is
+therefore done on **mean foreground Dice**, never on accuracy or loss. `reeval`
+also reports Dice per patient: pooled over all pixels, large tumours dominate
+the score.
 
-## Dataset
+## Future work
 
-LiTS, 2D PNG export: 131 patients, 58,638 slices at 256x256.
+- **Tumour Dice, the main goal.** On the internship PNGs the tumour was the weak
+  class: Dice 0.73 pooled over all pixels but only about 0.4 averaged per
+  patient, recall 0.66. Most lesions are under 1 mL, and those are the ones
+  missed.
+- **More models,** which ones to be decided with the supervisor. A new
+  architecture goes into `ARCHES` in `src/model.py`.
+- **The 3D viewer:** improve the interactive viewer.
 
-- 67.4% of slices contain no liver at all, so they are dropped (`skip_empty`),
-  leaving 19,143 usable slices
-- the split is **by patient**, not by slice: adjacent slices of one patient are
-  near-duplicates, and a slice-level split leaks between train and test
-- labels arrive as two overlapping binary masks per slice; they are merged with
-  the lesion written **last**, because the liver mask also covers the lesion
+## Internship (PNG export)
 
-## Layout
+The internship trained both models on a 2D PNG export of LiTS (8-bit,
+256x256, each slice stretched by its own min and max). Data in
+`data/internship_png/`, models in `runs/internship_png/`, results in
+`results/internship_png/`, report in `report/internship/`.
 
-```
-src/
-  config.py            every setting in one dataclass
-  data.py              loading, mask merging, patient-level split, augmentation
-  model.py             DoubleConv / Down / Up / AttentionGate, both networks
-  losses.py            Dice + cross-entropy
-  train.py             training loop
-  evaluate.py          metrics and figures
-  utils/
-    dataset_report.py  describes the dataset before any training
-    diagram.py         architecture figures, generated from the config
-    summary.py         layer table + parameter count, cross-checked
-    compare.py         side-by-side comparison of runs in a group
-    attention_viz.py   reads out the alpha maps from a trained gate
-    reeval.py          re-run evaluation on saved checkpoints
-    view3d.py          stacks one patient's slices into a 3D volume
-    viewer.py          the same patient as one self-contained HTML page
-    selftest.py        nine checks on the whole pipeline
-    download.py        dataset fetch and verification
-```
+| Model | Parameters | fg Dice | Liver Dice | Tumour Dice | Train time |
+|---|---:|---:|---:|---:|---:|
+| U-Net | 7,762,531 | 0.8222 | 0.9101 | 0.7343 | 93 min |
+| Attention U-Net | 7,894,783 | 0.8247 | 0.9172 | 0.7322 | 112 min |
 
-## Getting started
+40 epochs each on an RTX 2070, same split and seed. The difference is smaller
+than the variation between two runs of the same model (0.003-0.005 fg Dice).
+Tumour recall was the weak point: 0.664, and 154 of 582 test slices with a
+lesion scored Dice 0.
+
+These models learnt PNG-style images. On the NIfTI test patients converted the
+same way they score as on the PNGs (fg Dice 0.824 / 0.824), on HU input about 0,
+so NIfTI models are trained from scratch:
 
 ```bash
-conda create -n seg python=3.12 -y && conda activate seg
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-pip install numpy pillow matplotlib kaggle
-
-kaggle datasets download -d andrewmvd/lits-png -p data --unzip
-
-python -m src.utils.selftest unet             # 9 checks before you commit hours
-python -m src.utils.selftest attention_unet
+python -m src.utils.old_models_on_nifti     # -> results/nifti/old_models_on_nifti.txt
 ```
 
-Then train and compare:
+To use the internship tools on them, pass the group and `--png` where needed:
 
 ```bash
-python -m src.train --arch unet --group ablation
-python -m src.train --arch attention_unet --group ablation
-python -m src.utils.compare --group ablation
+python -m src.utils.selftest unet --png
+python -m src.train --arch unet --data-format png --group ablation   # -> runs/internship_png/ablation/
+python -m src.utils.viewer --group internship_png/ablation_2070 --volume 16
+python -m src.utils.dataset_report                                  # -> results/internship_png/
 ```
-
-Run everything from the project root with `python -m`. Do **not** mark `src/` as
-a Sources Root in an IDE: it puts `src` on `sys.path`, which exposes `src/utils`
-as top-level `utils` and collides with `torch.utils`.
-
-## Looking at a patient in 3D
-
-```bash
-python -m src.utils.viewer --group ablation_2070 --volume 16
-```
-
-Opens a matplotlib window: a slider steps through the slices, radio buttons pick
-the plane (axial / coronal / sagittal) and the overlay (ground truth, prediction,
-or a correct / missed / false-alarm difference map), and the 3D axis beside it
-rotates by dragging. `--save` writes the same views as PNGs instead.
-
-Both this and `view3d.py` load **only the slices whose ground truth contains
-liver**, the same `has_foreground` rule training uses. The other 67% hold no true
-positives, so all they add to a 3D volume is false-positive blobs floating where
-the organ is not. Pass `--all-slices` if you want them anyway.
-
-`view3d.py --nifti` exports the volumes for 3D Slicer or ITK-SNAP.
 
 ## Notes
 
-Model weights are gitignored. `runs/*/metrics_test.json` and `history.json` keep
-the full results and the exact config for every run, so the numbers above are
-reproducible from what is committed.
+Model weights and data are gitignored. Each run's `history.json` and
+`metrics_test.json` keep the exact config and results.
 
-Known limitations are listed in `report/internship_notebook.tex`: one run per
-architecture, Dice pooled over pixels rather than averaged per patient, the
-8-bit export destroying the Hounsfield scale, and per-patient brightness varying
-from 95 to 182 against a single fixed normalisation.
+Do **not** mark `src/` as a Sources Root in an IDE: it puts `src` on
+`sys.path`, which exposes `src/utils` as top-level `utils` and collides with
+`torch.utils`.

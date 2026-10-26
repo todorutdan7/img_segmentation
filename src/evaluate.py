@@ -28,6 +28,36 @@ def accumulate_confusion(model, loader, device, num_classes):
     return cm.numpy()
 
 
+@torch.no_grad()
+def per_volume_confusion(model, loader, device, num_classes, keys):
+    """one confusion matrix per patient instead of one for the whole test set
+
+    keys[i] is the patient of dataset item i. The loader must not shuffle, so
+    the i-th prediction is the i-th item. Summing the matrices gives exactly
+    accumulate_confusion's pooled one.
+    """
+    model.eval()
+    cms, i = {}, 0
+    for x, y in loader:
+        pred = model(x.to(device, non_blocking=True)).argmax(1).cpu()
+        for b in range(x.size(0)):
+            k = y[b].view(-1).long() * num_classes + pred[b].view(-1)
+            cm = torch.bincount(k, minlength=num_classes ** 2).reshape(num_classes, num_classes)
+            cms[keys[i]] = cms.get(keys[i], 0) + cm.numpy()
+            i += 1
+    return cms
+
+
+def case_dice(cm):
+    """per-class Dice of one patient. NaN where a class is in neither the truth
+    nor the prediction - no tumour there is not a score of 0 or 1"""
+    cm = cm.astype(np.float64)
+    tp = np.diag(cm)
+    den = 2 * tp + (cm.sum(axis=0) - tp) + (cm.sum(axis=1) - tp)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(den > 0, 2 * tp / den, np.nan)
+
+
 
 def metrics_from_confusion(cm, class_names):
     cm = cm.astype(np.float64)

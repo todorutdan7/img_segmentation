@@ -1,0 +1,15 @@
+PNG trained models on the NIfTI test patients
+each model on its own 20 test patients
+
+                  input             fg Dice   liver  tumour
+  attention_unet  png                0.8247  0.9172  0.7322
+                  nifti as png       0.8241  0.9108  0.7374
+                  nifti as HU        0.0006  0.0013  0.0000
+
+  unet            png                0.8222  0.9101  0.7343
+                  nifti as png       0.8236  0.9059  0.7413
+                  nifti as HU        0.0090  0.0180  0.0000
+
+nifti as png ~ png: the NIfTI files hold the same patients and are read correctly
+nifti as HU ~ 0: these models learnt per slice stretched 8 bit images and do not
+understand Hounsfield units. Models for the NIfTI data have to be trained on it.

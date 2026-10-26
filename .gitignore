@@ -1,6 +1,6 @@
 # ---- datasets -------------------------------------------------------
-# 3.4 GB of PNGs. Re-download with:
-#   kaggle datasets download -d andrewmvd/lits-png -p data --unzip
+# the NIfTI scans (27 GB), their slice caches and the internship PNGs.
+# Download instructions are in the README.
 data/
 
 # ---- model weights --------------------------------------------------
@@ -12,7 +12,7 @@ data/
 
 # ---- 3D viewer exports ----------------------------------------------
 # Regenerate with  python -m src.utils.view3d --nifti. The PNG renders in
-# results/ and report/figures/ are kept.
+# results/ and report/internship/figures/ are kept.
 *.nii
 *.nii.gz
 *.nrrd

@@ -295,7 +295,11 @@ def load_checkpoint(ckpt_path, device=None):
     device = device or get_device()
     ck = torch.load(ckpt_path, map_location=device, weights_only=False)
     names = {f.name for f in fields(Config)}
-    cfg = Config(**{k: v for k, v in ck["config"].items() if k in names})
+    saved = dict(ck["config"])
+    # checkpoints from before the nifti work do not record a format, and the
+    # default is now nifti - but every one of them was trained on the pngs
+    saved.setdefault("data_format", "png")
+    cfg = Config(**{k: v for k, v in saved.items() if k in names})
     model = build_model(cfg).to(device)
     model.load_state_dict(ck["model_state"])
     model.eval()
