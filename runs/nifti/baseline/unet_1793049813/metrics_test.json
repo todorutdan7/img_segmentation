@@ -1,0 +1,161 @@
+{
+  "pixel_accuracy": 0.9876261960126155,
+  "mean_dice": 0.8644769118025252,
+  "mean_iou": 0.7834774642983775,
+  "mean_dice_fg": 0.7997529968402955,
+  "mean_iou_fg": 0.6812547688337361,
+  "per_class": {
+    "background": {
+      "dice": 0.993924741726984,
+      "iou": 0.9879228552276604,
+      "precision": 0.9950891065670754,
+      "recall": 0.9927630985747355,
+      "pixels": 551225278,
+      "pixel_share": 0.9337289346047871
+    },
+    "liver": {
+      "dice": 0.9128626431288169,
+      "iou": 0.8396939332082797,
+      "precision": 0.9007281531794268,
+      "recall": 0.9253285463043528,
+      "pixels": 37074074,
+      "pixel_share": 0.0628003413469711
+    },
+    "tumor": {
+      "dice": 0.6866433505517742,
+      "iou": 0.5228156044591926,
+      "precision": 0.645896123771594,
+      "recall": 0.7328779425028402,
+      "pixels": 2048936,
+      "pixel_share": 0.0034707240482418408
+    }
+  },
+  "confusion_matrix": [
+    [
+      547236115,
+      3563212,
+      425951
+    ],
+    [
+      2371083,
+      34305699,
+      397292
+    ],
+    [
+      329598,
+      217718,
+      1501620
+    ]
+  ],
+  "split": "test",
+  "params": 7762531,
+  "n_test_slices": 2252,
+  "skip_empty": true,
+  "data_format": "nifti",
+  "per_volume_dice": {
+    "volume-1": {
+      "background": 0.9945,
+      "liver": 0.9372,
+      "tumor": 0.7049
+    },
+    "volume-16": {
+      "background": 0.9951,
+      "liver": 0.9164,
+      "tumor": 0.8251
+    },
+    "volume-23": {
+      "background": 0.9845,
+      "liver": 0.8272,
+      "tumor": 0.6114
+    },
+    "volume-25": {
+      "background": 0.9956,
+      "liver": 0.9201,
+      "tumor": 0.0226
+    },
+    "volume-30": {
+      "background": 0.9953,
+      "liver": 0.9346,
+      "tumor": 0.203
+    },
+    "volume-51": {
+      "background": 0.9958,
+      "liver": 0.8838,
+      "tumor": 0.8455
+    },
+    "volume-53": {
+      "background": 0.9962,
+      "liver": 0.9193,
+      "tumor": 0.5334
+    },
+    "volume-54": {
+      "background": 0.995,
+      "liver": 0.9321,
+      "tumor": 0.0
+    },
+    "volume-62": {
+      "background": 0.9968,
+      "liver": 0.9509,
+      "tumor": 0.2785
+    },
+    "volume-68": {
+      "background": 0.9833,
+      "liver": 0.8937,
+      "tumor": 0.035
+    },
+    "volume-71": {
+      "background": 0.9858,
+      "liver": 0.8668,
+      "tumor": 0.5293
+    },
+    "volume-75": {
+      "background": 0.9932,
+      "liver": 0.913,
+      "tumor": 0.1523
+    },
+    "volume-77": {
+      "background": 0.9907,
+      "liver": 0.8762,
+      "tumor": 0.4244
+    },
+    "volume-78": {
+      "background": 0.9911,
+      "liver": 0.8803,
+      "tumor": 0.5341
+    },
+    "volume-91": {
+      "background": 0.9963,
+      "liver": 0.936,
+      "tumor": 0.0
+    },
+    "volume-104": {
+      "background": 0.9869,
+      "liver": 0.8392,
+      "tumor": 0.0239
+    },
+    "volume-106": {
+      "background": 0.9966,
+      "liver": 0.9392,
+      "tumor": 0.0
+    },
+    "volume-112": {
+      "background": 0.996,
+      "liver": 0.9574,
+      "tumor": 0.0272
+    },
+    "volume-117": {
+      "background": 0.9967,
+      "liver": 0.9213,
+      "tumor": 0.8502
+    },
+    "volume-121": {
+      "background": 0.9974,
+      "liver": 0.9622,
+      "tumor": 0.0
+    }
+  },
+  "mean_case_dice": {
+    "liver": 0.9103449999999998,
+    "tumor": 0.33004
+  }
+}
