@@ -123,13 +123,22 @@ an export without the model.
 `ARCH_NAMES` in `src/config.py`. The self-test's parameter check compares
 against `src/utils/diagram.py`, which only knows the two U-Nets.
 
-## Why not accuracy
+## Scores
 
 A model predicting background everywhere scores about 93% pixel accuracy,
-because tumour is 0.12% of pixels and liver about 2%. Model selection is
-therefore done on **mean foreground Dice**, never on accuracy or loss. `reeval`
-also reports Dice per patient: pooled over all pixels, large tumours dominate
-the score.
+because tumour is 0.12% of pixels and liver about 2%, so accuracy is never used.
+
+- **Main score: tumour Dice per patient**, LiTS rules. Dice is computed for
+  each test patient, then averaged (median reported too). A patient with no
+  tumour scores 1 if none is predicted and 0 if some is. Pooled Dice, over all
+  pixels together, is reported as well, but big tumours dominate it.
+- **Best epoch:** training keeps the epoch with the best validation tumour
+  Dice per patient (`--select-metric tumor_case`, the default;
+  `--select-metric dice_fg` for the old rule).
+- **3D clean-up** (`src/postprocess.py`, no retraining): the slices are stacked
+  back into 3D, only the largest connected liver piece is kept, and tumour
+  outside it is removed. `reeval` and `train` report every score raw and
+  cleaned; `reeval --min-tumor-voxels N` also drops tumour pieces under N voxels.
 
 ## Future work
 
@@ -166,9 +175,12 @@ so NIfTI models are trained from scratch:
 python -m src.utils.old_models_on_nifti     # -> results/nifti/old_models_on_nifti.txt
 ```
 
-To use the internship tools on them, pass the group and `--png` where needed:
+To use the internship tools on them, pass the group and `--png` where needed.
+They need the PNG export in `data/internship_png/` (and `old_models_on_nifti` a
+256 px NIfTI cache, `python -m src.nifti --resolution half`):
 
 ```bash
+kaggle datasets download -d andrewmvd/lits-png -p data/internship_png --unzip   # 3.4 GB
 python -m src.utils.selftest unet --png
 python -m src.train --arch unet --data-format png --group ablation   # -> runs/internship_png/ablation/
 python -m src.utils.viewer --group internship_png/ablation_2070 --volume 16

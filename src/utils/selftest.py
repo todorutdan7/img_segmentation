@@ -93,8 +93,15 @@ def main():
         size = 256
     elif a.resolution:
         size = RESOLUTIONS[a.resolution]
+    elif cache_sizes():
+        size = cache_sizes()[-1]
     else:
-        size = (cache_sizes() or [Config().image_size])[-1]
+        # building a cache takes ~45 min and up to 46 GB; never start that silently
+        print("no NIfTI slice cache yet. Build one first:\n"
+              "    python -m src.nifti                      (512 px, ~46 GB)\n"
+              "    python -m src.nifti --resolution half    (256 px, ~11.5 GB)\n"
+              "or name the size here, e.g.  --resolution half, to build it as part of the test.")
+        return 1
     cfg = Config(arch=a.arch, data_format="png" if a.png else "nifti", image_size=size,
                  max_samples=40, batch_size=2, num_workers=0)
     device = get_device()

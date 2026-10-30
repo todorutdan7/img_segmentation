@@ -7,8 +7,12 @@
 Regenerates confusion matrices, the per-class Dice/IoU bars, predictions_test.png
 and metrics_test.json inside each run folder - without retraining. Useful after
 changing anything in evaluate.py, since those figures are otherwise only written
-once, at the end of a training run. It also records Dice per patient, next to
-the pooled number.
+once, at the end of a training run.
+
+It also scores every test patient in 3D, raw and after the clean-up of
+src/postprocess.py (largest liver piece kept, tumour outside it removed): pooled
+Dice and Dice per patient by LiTS rules, mean and median. Per patient tumour
+Dice is the main score. Saved under "scores" in metrics_test.json.
 
 The config is read back out of each checkpoint, so the data format and the test
 split are exactly the ones the model was trained with.
@@ -19,36 +23,14 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-import numpy as np
-
 from src.config import get_device
-from src.data import get_dataloaders, has_foreground as _has_fg, volume_id
+from src.data import get_dataloaders, has_foreground as _has_fg, slice_keys
 from src.model import load_checkpoint
-from src.evaluate import evaluate, per_volume_confusion, case_dice
-
-
-def volume_keys(dataset, cfg):
-    """the patient of every dataset item, in order"""
-    if cfg.data_format == "nifti":
-        return [k for k, _ in dataset.pairs]
-    return [volume_id(ip) for ip, _ in dataset.pairs]
-
-
-def per_case(model, loader, cfg, device):
-    """per-patient Dice, as LiTS reports it next to the pooled number.
-    Tumour is averaged over the patients whose truth or prediction has some."""
-    cms = per_volume_confusion(model, loader, device, cfg.num_classes,
-                               volume_keys(loader.dataset, cfg))
-    per = {k: {c: (None if np.isnan(d) else round(float(d), 4))
-               for c, d in zip(cfg.class_names, case_dice(cm))}
-           for k, cm in sorted(cms.items(), key=lambda t: int(t[0].split("-")[1]))}
-    mean = {c: float(np.nanmean([np.nan if v[c] is None else v[c] for v in per.values()]))
-            for c in cfg.class_names[1:]}
-    return per, mean
+from src.evaluate import evaluate, volume_scores, print_scores
 
 
 def run_one(ckpt: Path, device, num_workers=0, batch_size=None,
-            keep_empty=False, verbose=True):
+            keep_empty=False, min_tumor_voxels=0, verbose=True):
     model, cfg, ck = load_checkpoint(ckpt, device)
 
     # The checkpoint carries the config it was TRAINED with, including
@@ -96,9 +78,9 @@ def run_one(ckpt: Path, device, num_workers=0, batch_size=None,
     metrics["n_test_slices"] = n
     metrics["skip_empty"] = cfg.skip_empty
     metrics["data_format"] = cfg.data_format
-    metrics["per_volume_dice"], metrics["mean_case_dice"] = per_case(model, test_loader, cfg, device)
-    print("mean Dice per patient: " + "  ".join(
-        f"{c} {d:.4f}" for c, d in metrics["mean_case_dice"].items()))
+    metrics["scores"] = volume_scores(model, test_loader, device, cfg.class_names,
+                                      slice_keys(ds), min_tumor_voxels)
+    print_scores(metrics["scores"], cfg.class_names)
     # keep the fields compare.py expects, if a previous metrics file had them
     old = out_dir / f"metrics_{split_name}.json"
     if old.exists():
@@ -129,6 +111,9 @@ def main():
                    help="score EVERY slice of the test patients, including the "
                         "~67%% with no liver. Writes metrics_test_allslices.json "
                         "so the foreground-only results are not overwritten.")
+    p.add_argument("--min-tumor-voxels", type=int, default=0,
+                   help="clean-up: tumour pieces smaller than this become liver. "
+                        "0 (default) keeps every piece inside the liver")
     a = p.parse_args()
 
     device = get_device()
@@ -145,7 +130,7 @@ def main():
           f"(num_workers={a.num_workers}, {mode})")
     for c in ckpts:
         run_one(c, device, num_workers=a.num_workers, batch_size=a.batch_size,
-                keep_empty=a.keep_empty)
+                keep_empty=a.keep_empty, min_tumor_voxels=a.min_tumor_voxels)
 
     print(f"\ndone. Re-run  python -m src.utils.compare --group {a.group}  "
           f"to refresh the comparison.")

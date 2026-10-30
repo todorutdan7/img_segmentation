@@ -265,6 +265,12 @@ def volume_id(path: Path) -> str:
     return m.group(1).lower() if m else path.stem
 
 
+def slice_keys(dataset):
+    """the patient of every item of a dataset, in order: "volume-16" for both
+    formats (a nifti item is ("volume-16", z), a png item a pair of paths)"""
+    return [p[0] if isinstance(p[0], str) else volume_id(p[0]) for p in dataset.pairs]
+
+
 # scan the dataset to find which slices actually contain liver or tumors and cache them in a file
 # empty background slices are suppressed
 

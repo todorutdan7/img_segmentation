@@ -45,18 +45,20 @@ def table(runs):
     matched = len(set(n_ep)) == 1
 
     a(f"{'run':<26}{'params':>11}{'epochs':>8}{'best@':>7}{'val fgD':>9}"
-      f"{'test fgD':>10}{'liver':>8}{'tumor':>8}{'min':>7}")
-    a("-" * 96)
+      f"{'test fgD':>10}{'liver':>8}{'tumor':>8}{'tum/pt':>8}{'min':>7}")
+    a("-" * 104)
     for r in runs:
         t = r["test"]
         pc = t.get("per_class", {})
+        # tumour Dice per patient (LiTS rules), written by reeval or train
+        tpp = t.get("scores", {}).get("raw", {}).get("per_patient_mean", {}).get("tumor", float("nan"))
         a(f"{r['cfg'].get('arch', r['name'])[:24]:<26}{r['params']:>11,}"
           f"{len(r['hist']['val_dice_fg']):>8}{r['best_epoch']:>7}{r['best']:>9.4f}"
           f"{t.get('mean_dice_fg', float('nan')):>10.4f}"
           f"{pc.get('liver', {}).get('dice', float('nan')):>8.4f}"
           f"{pc.get('tumor', {}).get('dice', float('nan')):>8.4f}"
-          f"{r['minutes']:>7.0f}")
-    a("-" * 96)
+          f"{tpp:>8.4f}{r['minutes']:>7.0f}")
+    a("-" * 104)
 
     if not matched:
         n = min(n_ep)
@@ -85,8 +87,9 @@ def table(runs):
     a("    distinguishable from run-to-run noise without repeats.")
     a("  - 20 test volumes, and tumour burden varies a lot between patients, so the")
     a("    tumour column carries the most variance.")
-    a("  - Dice here is pooled over all test pixels, not averaged per volume. The")
-    a("    LiTS challenge reports per-case; say which you used.")
+    a("  - liver / tumor are pooled over all test pixels; tum/pt is tumour Dice per")
+    a("    patient by LiTS rules (run reeval to fill it for older runs). Say which")
+    a("    one you quote.")
     return "\n".join(L)
 
 

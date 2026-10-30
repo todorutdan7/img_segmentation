@@ -1,5 +1,6 @@
 
 import json
+import re
 from pathlib import Path
 
 import matplotlib
@@ -48,14 +49,111 @@ def per_volume_confusion(model, loader, device, num_classes, keys):
     return cms
 
 
-def case_dice(cm):
-    """per-class Dice of one patient. NaN where a class is in neither the truth
-    nor the prediction - no tumour there is not a score of 0 or 1"""
+def case_dice(cm, empty=np.nan):
+    """per-class Dice of one patient.
+
+    empty = the score where a class is in neither the truth nor the prediction.
+    LiTS counts that as 1 (correctly found no tumour); NaN leaves it out.
+    Tumour predicted in a patient without any is 0 either way.
+    """
     cm = cm.astype(np.float64)
     tp = np.diag(cm)
     den = 2 * tp + (cm.sum(axis=0) - tp) + (cm.sum(axis=1) - tp)
     with np.errstate(invalid="ignore", divide="ignore"):
-        return np.where(den > 0, 2 * tp / den, np.nan)
+        return np.where(den > 0, 2 * tp / den, empty)
+
+
+@torch.no_grad()
+def predicted_volumes(model, loader, device, keys):
+    """the model's output stacked back into 3D, one patient at a time
+
+    Yields (key, truth, prediction), both (z, y, x) uint8 in slice order.
+    keys[i] is the patient of dataset item i; the loader must not shuffle, and
+    a patient's slices must be consecutive - which is how the datasets list
+    them. Only one patient is held in memory at a time.
+    """
+    model.eval()
+    cur, gts, prs, i = None, [], [], 0
+    for x, y in loader:
+        pred = model(x.to(device, non_blocking=True)).argmax(1).cpu().numpy().astype(np.uint8)
+        y = y.numpy().astype(np.uint8)
+        for b in range(len(pred)):
+            if keys[i] != cur and cur is not None:
+                yield cur, np.stack(gts), np.stack(prs)
+                gts, prs = [], []
+            cur = keys[i]
+            gts.append(y[b])
+            prs.append(pred[b])
+            i += 1
+    if cur is not None:
+        yield cur, np.stack(gts), np.stack(prs)
+
+
+def volume_confusion(gt, pr, num_classes):
+    """confusion matrix of one patient's volume, a slice at a time so no
+    full-volume int64 copy is made"""
+    cm = np.zeros(num_classes * num_classes, np.int64)
+    for g, p in zip(gt, pr):
+        cm += np.bincount((g.astype(np.int64) * num_classes + p).ravel(),
+                          minlength=num_classes * num_classes)
+    return cm.reshape(num_classes, num_classes)
+
+
+def _patient_number(key):
+    # "volume-16" -> 16, so patients sort 1, 2, 10 rather than 1, 10, 2
+    m = re.search(r"(\d+)$", str(key))
+    return int(m.group(1)) if m else 0
+
+
+def case_summary(cms, class_names):
+    """the scores reported for a set of patients, from one confusion matrix each
+
+    pooled      Dice over all patients' pixels together (big tumours dominate)
+    per patient Dice of each patient by LiTS rules, then the mean and median -
+                the main tumour score: every patient counts the same
+    """
+    fg = class_names[1:]
+    pooled = metrics_from_confusion(sum(cms.values()), class_names)
+    per = {k: dict(zip(fg, (float(d) for d in case_dice(cms[k], empty=1.0)[1:])))
+           for k in sorted(cms, key=_patient_number)}
+    pc = pooled["per_class"]
+    return {
+        "pooled": {"dice_fg": pooled["mean_dice_fg"],
+                   **{c: pc[c]["dice"] for c in fg},
+                   **{f"{c}_precision": pc[c]["precision"] for c in fg},
+                   **{f"{c}_recall": pc[c]["recall"] for c in fg}},
+        "per_patient_mean": {c: float(np.mean([v[c] for v in per.values()])) for c in fg},
+        "per_patient_median": {c: float(np.median([v[c] for v in per.values()])) for c in fg},
+        "per_patient": per,
+    }
+
+
+def volume_scores(model, loader, device, class_names, keys, min_tumor_voxels=0):
+    """case_summary of the raw prediction and of the 3D-cleaned one, from a
+    single pass of the model (see src/postprocess.py)"""
+    from src.postprocess import clean_volume
+    n = len(class_names)
+    raw, cleaned = {}, {}
+    for k, gt, pr in predicted_volumes(model, loader, device, keys):
+        raw[k] = volume_confusion(gt, pr, n)
+        cleaned[k] = volume_confusion(gt, clean_volume(pr, min_tumor_voxels), n)
+    return {"raw": case_summary(raw, class_names),
+            "cleaned": case_summary(cleaned, class_names),
+            "min_tumor_voxels": min_tumor_voxels}
+
+
+def print_scores(scores, class_names):
+    """the raw vs cleaned table reeval and train print"""
+    fg = class_names[1:]
+    head = "".join(f"{c[:6]:>9}" for c in fg)
+    print(f"\n{'':10}{'pooled: fg':>11}{head}   {'per patient:':>12}"
+          + "".join(f"{c[:6] + ' mean':>13}{'median':>8}" for c in fg))
+    for name in ("raw", "cleaned"):
+        s = scores[name]
+        print(f"{name:<10}{s['pooled']['dice_fg']:>11.4f}"
+              + "".join(f"{s['pooled'][c]:>9.4f}" for c in fg) + f"   {'':>12}"
+              + "".join(f"{s['per_patient_mean'][c]:>13.4f}{s['per_patient_median'][c]:>8.4f}"
+                        for c in fg))
 
 
 

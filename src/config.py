@@ -101,6 +101,11 @@ class Config:
     scheduler: str = "cosine"
 
 
+    select_metric: str = "tumor_case"       # which validation score picks best_model.pt
+    # "tumor_case" tumour Dice per patient (LiTS rules), the main goal
+    # "dice_fg"    mean of liver and tumour Dice over all pixels (the
+    #              internship runs and the first NIfTI baseline used this)
+
     early_stop_patience: int = 0
     amp: bool = True
 

@@ -12,10 +12,11 @@ import numpy as np
 import torch
 
 from src.config import Config, ARCH_NAMES, RESOLUTIONS, get_device
-from src.data import get_dataloaders
+from src.data import get_dataloaders, slice_keys
 from src.model import build_model
 from src.losses import build_loss
-from src.evaluate import evaluate, accumulate_confusion, metrics_from_confusion
+from src.evaluate import (evaluate, per_volume_confusion, metrics_from_confusion,
+                          case_dice, volume_scores, print_scores)
 
 
 def set_seed(seed):
@@ -68,7 +69,8 @@ def train_epoch(model, loader, criterion, optimizer, device, scaler=None):
 
 @torch.no_grad()
 def validate(model, loader, criterion, device, num_classes, class_names):
-
+    """validation loss, pooled metrics, and m["tumor_case"]: the mean tumour
+    Dice per patient by LiTS rules (None when there is no tumour class)"""
     model.eval()
     total, seen = 0.0, 0
     for x, y in loader:
@@ -76,8 +78,11 @@ def validate(model, loader, criterion, device, num_classes, class_names):
         y = y.to(device, non_blocking=True)
         total += criterion(model(x), y).item() * x.size(0)
         seen += x.size(0)
-    m = metrics_from_confusion(
-        accumulate_confusion(model, loader, device, num_classes), class_names)
+    # one confusion matrix per patient; their sum is the pooled one
+    cms = per_volume_confusion(model, loader, device, num_classes, slice_keys(loader.dataset))
+    m = metrics_from_confusion(sum(cms.values()), class_names)
+    m["tumor_case"] = (float(np.mean([case_dice(cm, empty=1.0)[2] for cm in cms.values()]))
+                       if num_classes > 2 else None)
     return total / max(seen, 1), m
 
 
@@ -93,6 +98,9 @@ def plot_history(history, out_path):
     axes[1].plot(ep, history["val_dice_fg"], label="val Dice (foreground)", color="#C0392B")
     axes[1].plot(ep, history["val_dice"], label="val Dice (all classes)",
                  color="#4A90D9", alpha=.7)
+    if any(v is not None for v in history.get("val_tumor_case", [])):
+        axes[1].plot(ep, history["val_tumor_case"], label="val tumour Dice per patient",
+                     color="#8E44AD")
     axes[1].set_xlabel("epoch"); axes[1].set_ylabel("Dice")
     axes[1].set_ylim(0, 1)
     axes[1].set_title("Validation Dice"); axes[1].legend(); axes[1].grid(alpha=.3)
@@ -121,14 +129,19 @@ def train(cfg: Config, verbose=True):
     scheduler = build_scheduler(optimizer, cfg)
     scaler = torch.amp.GradScaler(device.type) if (cfg.amp and device.type == "cuda") else None
 
-    history = {k: [] for k in ["train_loss", "val_loss", "val_dice", "val_dice_fg", "val_iou_fg", "lr"]}
-    best_dice, best_epoch, patience = -1.0, -1, 0
+    history = {k: [] for k in ["train_loss", "val_loss", "val_dice", "val_dice_fg", "val_iou_fg",
+                               "val_tumor_case", "lr"]}
+    # the score that picks the best epoch; a liver-only run has no tumour to judge by
+    select = cfg.select_metric if cfg.num_classes > 2 else "dice_fg"
+    best_val, best_dice, best_epoch, patience = -1.0, -1.0, -1, 0
     ckpt_path = out_dir / "best_model.pt"
     t0 = time.time()
 
     def save_history(done_epochs):
         with open(out_dir / "history.json", "w") as fh:
             json.dump({"config": cfg.to_dict(), "history": history,
+                       "select_metric": select, "best_val": best_val,
+                       # foreground Dice at the best epoch, whatever picked it
                        "best_val_dice_fg": best_dice, "best_epoch": best_epoch,
                        "epochs_completed": done_epochs,
                        "train_minutes": (time.time() - t0) / 60,
@@ -146,15 +159,18 @@ def train(cfg: Config, verbose=True):
             history["val_dice"].append(m["mean_dice"])
             history["val_dice_fg"].append(m["mean_dice_fg"])
             history["val_iou_fg"].append(m["mean_iou_fg"])
+            history["val_tumor_case"].append(m["tumor_case"])
             history["lr"].append(optimizer.param_groups[0]["lr"])
             if scheduler:
                 scheduler.step()
 
+            score = m["tumor_case"] if select == "tumor_case" else m["mean_dice_fg"]
             flag = ""
-            if m["mean_dice_fg"] > best_dice:
-                best_dice, best_epoch, patience = m["mean_dice_fg"], epoch, 0
+            if score > best_val:
+                best_val, best_dice, best_epoch, patience = score, m["mean_dice_fg"], epoch, 0
                 torch.save({"model_state": model.state_dict(), "config": cfg.to_dict(),
-                            "epoch": epoch, "val_dice_fg": best_dice}, ckpt_path)
+                            "epoch": epoch, "val_dice_fg": best_dice,
+                            "select_metric": select, "val_select": best_val}, ckpt_path)
                 flag = "  <- best"
             else:
                 patience += 1
@@ -164,8 +180,9 @@ def train(cfg: Config, verbose=True):
             if verbose:
                 per = "  ".join(f"{c[:4]} {m['per_class'][c]['dice']:.3f}"
                                 for c in cfg.class_names[1:])
+                tpp = f"  tumour/patient {m['tumor_case']:.3f}" if m["tumor_case"] is not None else ""
                 print(f"epoch {epoch:3d}/{cfg.epochs}  train {tr_loss:.4f}  "
-                      f"val {va_loss:.4f}  fgDice {m['mean_dice_fg']:.4f}  [{per}]{flag}")
+                      f"val {va_loss:.4f}  fgDice {m['mean_dice_fg']:.4f}  [{per}]{tpp}{flag}")
 
             if cfg.early_stop_patience and patience >= cfg.early_stop_patience:
                 if verbose:
@@ -180,7 +197,8 @@ def train(cfg: Config, verbose=True):
     elapsed = time.time() - t0
     if verbose:
         print(f"[train] {'stopped' if interrupted else 'done'} in {elapsed/60:.1f} min. "
-              f"best val fg Dice {best_dice:.4f} @ epoch {best_epoch}")
+              f"best epoch {best_epoch} by {select}: {best_val:.4f} "
+              f"(val fg Dice there {best_dice:.4f})")
 
     if not history["train_loss"]:
         print("[train] no epoch completed - nothing to evaluate.")
@@ -195,6 +213,11 @@ def train(cfg: Config, verbose=True):
     model.load_state_dict(torch.load(ckpt_path, map_location=device)["model_state"])
     metrics = evaluate(model, test_loader, device, cfg.class_names, out_dir,
                        split="test", verbose=verbose)
+    # per patient and after the 3D clean-up, as reeval does
+    metrics["scores"] = volume_scores(model, test_loader, device, cfg.class_names,
+                                      slice_keys(test_loader.dataset))
+    if verbose:
+        print_scores(metrics["scores"], cfg.class_names)
     metrics["best_val_dice_fg"] = best_dice
     metrics["params"] = model.count_parameters()
     metrics["train_minutes"] = elapsed / 60
@@ -259,6 +282,9 @@ def parse_args(argv=None):
     p.add_argument("--lr", type=float, default=d.lr)
     p.add_argument("--weight-decay", type=float, default=d.weight_decay)
     p.add_argument("--scheduler", choices=["cosine", "step", "none"], default=d.scheduler)
+    p.add_argument("--select-metric", choices=["tumor_case", "dice_fg"], default=d.select_metric,
+                   help="validation score that picks best_model.pt: tumour Dice per patient "
+                        "(default) or foreground Dice over all pixels")
     p.add_argument("--early-stop-patience", type=int, default=d.early_stop_patience)
     p.add_argument("--no-amp", action="store_true", help="disable mixed precision")
     p.add_argument("--seed", type=int, default=d.seed)
@@ -281,6 +307,7 @@ def parse_args(argv=None):
         loss=a.loss, dice_weight=a.dice_weight, class_weights=a.class_weights,
         epochs=a.epochs, optimizer=a.optimizer, lr=a.lr,
         weight_decay=a.weight_decay, scheduler=a.scheduler,
+        select_metric=a.select_metric,
         early_stop_patience=a.early_stop_patience, amp=not a.no_amp, seed=a.seed,
         run_name=a.run_name or f"{a.arch}_{int(time.time())}", group=a.group,
     )
