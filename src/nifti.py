@@ -26,7 +26,8 @@ one is downsampled from a larger cache in about a minute; otherwise the
 WHAT THE MODEL GETS
 A slice is read from the cache in HU, clipped to cfg.hu_window and mapped to
 0..1 (scale_hu), then normalised and augmented exactly like the png slices
-were. liver_N here is LiTS volume-N, so the seeded split puts the same patients
+were. With cfg.in_slices = 3 (2.5D) the slices above and below come along as
+extra channels; the label is always the middle slice's. liver_N here is LiTS volume-N, so the seeded split puts the same patients
 in test as the internship runs. Slices are stored (z, y, x) with each one the
 RAS x-y plane transposed - the orientation of the internship's png export.
 """
@@ -377,12 +378,15 @@ class NiftiSliceDataset(LiTSDataset):
     """
 
     def __init__(self, items, cache_dir, volumes, augment=False, liver_only=False,
-                 hu_window=Config.hu_window, mean=0.5, std=0.5):
+                 hu_window=Config.hu_window, in_slices=1, mean=0.5, std=0.5):
+        if in_slices < 1 or in_slices % 2 == 0:
+            raise ValueError(f"in_slices must be odd (1, 3, 5...), got {in_slices}")
         size = load_index(cache_dir)["image_size"]
         super().__init__(items, size, augment, liver_only, mean, std)
         self.cache_dir = Path(cache_dir)
         self.volumes = volumes
         self.hu_window = tuple(hu_window)
+        self.in_slices = in_slices
         self._maps = {}
 
     def scale(self, hu):
@@ -401,7 +405,13 @@ class NiftiSliceDataset(LiTSDataset):
         if key not in self._maps:
             self._maps[key] = open_volume(self.cache_dir, self.volumes[key])
         img, lab = self._maps[key]
-        x = torch.from_numpy(self.scale(img[z].astype(np.float32))).unsqueeze(0)
+        # 2.5D: the slice with its neighbours as channels, (in_slices, H, W). The
+        # cache holds every slice of the scan, so the neighbours of a liver slice
+        # are there even when they hold no liver; at the first and last slice the
+        # edge slice is repeated. The label stays the middle slice's.
+        k = self.in_slices // 2
+        zs = np.clip(np.arange(z - k, z + k + 1), 0, img.shape[0] - 1)
+        x = torch.from_numpy(self.scale(img[zs].astype(np.float32)))
         y = torch.from_numpy(lab[z].astype(np.int64))
         if self.liver_only:
             y = (y > 0).long()

@@ -120,8 +120,9 @@ def train(cfg: Config, verbose=True):
 
     model = build_model(cfg).to(device)
     if verbose:
+        enc = f"  encoder={cfg.encoder_weights}" if cfg.arch.endswith("_r50") else ""
         print(f"[model] {cfg.arch}  device={device}  "
-              f"trainable params={model.count_parameters():,}  "
+              f"trainable params={model.count_parameters():,}  in_slices={cfg.in_slices}{enc}  "
               f"amp={'on' if (cfg.amp and device.type=='cuda') else 'off'}")
 
     criterion = build_loss(cfg, pixel_counts, device)
@@ -236,7 +237,13 @@ def parse_args(argv=None):
     p.add_argument("--group", default=d.group,
                    help="runs are saved in runs/<nifti|internship_png>/<group>/<run-name>")
     p.add_argument("--arch", choices=ARCH_NAMES, default=d.arch,
-                   help="attention_unet (default) or unet, the ablation baseline")
+                   help="attention_unet (default) or unet, from scratch; *_r50 = the same "
+                        "with an ImageNet-pretrained ResNet-50 encoder")
+    p.add_argument("--in-slices", type=int, default=d.in_slices,
+                   help="slices per input: 1 = 2D (default), 3 = 2.5D, the slice and its "
+                        "two neighbours as channels (nifti only)")
+    p.add_argument("--encoder-weights", choices=["imagenet", "none"], default=d.encoder_weights,
+                   help="*_r50 only: start the ResNet-50 from ImageNet (default) or random")
 
     p.add_argument("--data-format", choices=["nifti", "png"], default=d.data_format,
                    help="nifti = MSD Task03_Liver (default), png = the internship's export")
@@ -301,7 +308,7 @@ def parse_args(argv=None):
         augment=not a.no_augment, liver_only=a.liver_only,
         skip_empty=not a.keep_empty, max_samples=a.max_samples,
         split_by_volume=not a.split_by_slice,
-        arch=a.arch,
+        arch=a.arch, in_slices=a.in_slices, encoder_weights=a.encoder_weights,
         base_filters=a.base_filters, depth=a.depth, dropout=a.dropout,
         batch_norm=not a.no_batch_norm, bilinear=a.bilinear,
         loss=a.loss, dice_weight=a.dice_weight, class_weights=a.class_weights,

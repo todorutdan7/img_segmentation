@@ -577,9 +577,10 @@ def draw(P, out_path, dpi=100):
 
 
 def main():
-    from src.config import Config, ARCH_DIR, ARCH_NAMES, IN_CHANNELS
+    from src.config import Config, ARCH_DIR, SCRATCH_ARCHS as ARCH_NAMES, IN_CHANNELS
 
     p = argparse.ArgumentParser(description="draw the architecture diagram")
+    # the from-scratch U-Nets only; the ResNet-50 ones are not drawn here
     p.add_argument("--arch", choices=ARCH_NAMES + ["both"], default=None)
     p.add_argument("--base-filters", type=int, default=None)
     p.add_argument("--depth", type=int, default=None)

@@ -34,7 +34,10 @@ def get_device() -> torch.device:
 RESOLUTIONS = {"full": 512, "half": 256, "quarter": 128, "eighth": 64}
 
 ARCH_NAME = "attention_unet"
-ARCH_NAMES = ["attention_unet", "unet"]
+# trained from scratch, the internship's two networks
+SCRATCH_ARCHS = ["attention_unet", "unet"]
+# the same two with an ImageNet-pretrained ResNet-50 as the encoder
+ARCH_NAMES = SCRATCH_ARCHS + ["attention_unet_r50", "unet_r50"]
 
 @dataclass
 class Config:
@@ -66,7 +69,15 @@ class Config:
     split_by_volume: bool = True      # split whole patients, not individual
                                       # slices, slice split leaks between train and test
 
-    arch: str = ARCH_NAME             # "attention_unet" | "unet"
+    arch: str = ARCH_NAME             # "attention_unet" | "unet" | "attention_unet_r50" | "unet_r50"
+
+    in_slices: int = 1                # slices given to the model as channels
+                                      # 1 = 2D, the slice alone
+                                      # 3 = 2.5D, the slice and the one above
+                                      #     and below: some 3D context, and the 3
+                                      #     channels an ImageNet encoder expects
+    encoder_weights: str = "imagenet" # *_r50 only: "imagenet" starts the ResNet-50
+                                      # from its ImageNet weights, "none" from random
 
     base_filters: int = 32            # filters at full resolution; doubles per
                                       # level

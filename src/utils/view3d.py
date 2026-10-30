@@ -242,13 +242,17 @@ def build_volume_nifti(model, cfg, entry, cache_dir, device, all_slices=False,
     ct = np.empty((n, side, side), np.uint8)
     gt = np.empty((n, side, side), np.uint8)
     pr = np.empty((n, side, side), np.uint8)
+    # 2.5D models get each slice with its neighbours, as in training
+    k = getattr(cfg, "in_slices", 1) // 2
     # a batch at a time, not one slice: the cache is fast enough that the
     # GPU would otherwise sit idle between slices
     for s in range(0, n, batch):
         chunk = zs[s:s + batch]
         hu = img[chunk].astype(np.float32)
-        x = torch.from_numpy((scale_hu(hu, cfg.hu_window) - 0.5) / 0.5)    # mean 0.5, std 0.5
-        pr[s:s + len(chunk)] = model(x[:, None].to(device)).argmax(1).cpu().numpy()
+        near = np.clip(np.asarray(chunk)[:, None] + np.arange(-k, k + 1), 0, img.shape[0] - 1)
+        inp = img[near.ravel()].astype(np.float32).reshape(len(chunk), 2 * k + 1, side, side)
+        x = torch.from_numpy((scale_hu(inp, cfg.hu_window) - 0.5) / 0.5)    # mean 0.5, std 0.5
+        pr[s:s + len(chunk)] = model(x.to(device)).argmax(1).cpu().numpy()
         ct[s:s + len(chunk)] = np.rint(scale_hu(hu, DISPLAY_WINDOW) * 255)
         gt[s:s + len(chunk)] = lab[chunk]
         if verbose and (s // batch) % 8 == 7:

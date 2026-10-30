@@ -119,9 +119,27 @@ For NIfTI the slice thickness is read from the scan header, and `view3d --nifti`
 exports the CT in HU at true voxel size. `viewer --from-export 16` reopens such
 an export without the model.
 
+**Models.** `--arch` picks one of four:
+
+| `--arch` | Encoder | Parameters |
+| --- | --- | --- |
+| `unet`, `attention_unet` | trained from scratch, 32 base filters, depth 4 | 7.8 M, 7.9 M |
+| `unet_r50`, `attention_unet_r50` | ResNet-50 pretrained on ImageNet (`--encoder-weights none` = random start) | 32.5 M, 34.4 M |
+
+`--in-slices 3` gives any model **2.5D input**: the slice and the one above and
+below as three channels, the label staying the middle slice's (NIfTI only). It
+also fills the three colour channels an ImageNet encoder expects. The ImageNet
+weights (~100 MB) are downloaded on the first run. At 512 the ResNet-50 models
+train about as fast as the from-scratch ones and need ~3.7 GB at batch 8.
+
+```bash
+python -m src.train --arch unet_r50 --in-slices 3 --group r50
+python -m src.train --arch attention_unet_r50 --in-slices 3 --group r50
+```
+
 **Adding a model.** Add the class to `ARCHES` in `src/model.py` and its name to
 `ARCH_NAMES` in `src/config.py`. The self-test's parameter check compares
-against `src/utils/diagram.py`, which only knows the two U-Nets.
+against `src/utils/diagram.py`, which only knows the two from-scratch U-Nets.
 
 ## Scores
 

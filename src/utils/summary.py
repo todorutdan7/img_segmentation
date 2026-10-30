@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 import torch
 
-from src.config import Config, ARCH_DIR, ARCH_NAMES, IN_CHANNELS
+from src.config import Config, ARCH_DIR, SCRATCH_ARCHS as ARCH_NAMES, IN_CHANNELS  # from-scratch U-Nets only
 from src.model import build_model
 
 COLORS = {

@@ -261,7 +261,113 @@ class UNet(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
-ARCHES = {"attention_unet": AttentionUNet, "unet": UNet}
+# ---------------------------------------------------------------------------
+# U-Net and Attention U-Net with an ImageNet-pretrained ResNet-50 encoder
+# ---------------------------------------------------------------------------
+# The encoder half is a ResNet-50 that already learnt edges, textures and
+# shapes on 1.2 million ImageNet photos, so only the decoder starts from
+# scratch. ImageNet images have 3 channels, which a 2.5D input (the slice and
+# its two neighbours) fills naturally.
+
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
+class ResNet50Encoder(nn.Module):
+    """ResNet-50 without its classifier, returning the feature maps at 1/2,
+    1/4, 1/8, 1/16 (the skips) and 1/32 (the bottleneck) of the input size"""
+    channels = (64, 256, 512, 1024, 2048)
+
+    def __init__(self, in_channels=3, pretrained=True):
+        super().__init__()
+        from torchvision.models import resnet50, ResNet50_Weights
+        # the ImageNet weights are downloaded once (~100 MB) to torch's cache
+        net = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2 if pretrained else None)
+        if in_channels != 3:
+            # each input channel gets the mean of the pretrained RGB filters,
+            # scaled so the first layer's response keeps its size
+            w = net.conv1.weight.data
+            net.conv1 = nn.Conv2d(in_channels, 64, 7, stride=2, padding=3, bias=False)
+            net.conv1.weight.data = w.mean(1, keepdim=True).repeat(1, in_channels, 1, 1) * 3 / in_channels
+        self.stem = nn.Sequential(net.conv1, net.bn1, net.relu)
+        self.pool = net.maxpool
+        self.layers = nn.ModuleList([net.layer1, net.layer2, net.layer3, net.layer4])
+        # the data arrives normalised to -1..1; ImageNet weights expect their
+        # own per-channel mean and std, applied here inside the model
+        mean = IMAGENET_MEAN if in_channels == 3 else (sum(IMAGENET_MEAN) / 3,) * in_channels
+        std = IMAGENET_STD if in_channels == 3 else (sum(IMAGENET_STD) / 3,) * in_channels
+        self.register_buffer("mean", torch.tensor(mean).view(1, -1, 1, 1))
+        self.register_buffer("std", torch.tensor(std).view(1, -1, 1, 1))
+
+    def forward(self, x):
+        x = ((x * 0.5 + 0.5) - self.mean) / self.std
+        feats = [self.stem(x)]                  # 1/2, 64 channels
+        x = self.pool(feats[0])
+        for layer in self.layers:               # 1/4 256, 1/8 512, 1/16 1024, 1/32 2048
+            x = layer(x)
+            feats.append(x)
+        return feats
+
+
+class UpBlock(nn.Module):
+    """decoder step: double the size, join the skip - filtered by an attention
+    gate in the attention variant - and refine with a DoubleConv"""
+
+    def __init__(self, in_ch, skip_ch, out_ch, attention=False):
+        super().__init__()
+        self.gate = AttentionGate(in_ch, skip_ch, max(skip_ch // 2, 1)) if attention and skip_ch else None
+        self.conv = DoubleConv(in_ch + skip_ch, out_ch)
+
+    def forward(self, x, skip=None):
+        if skip is not None and self.gate is not None:
+            skip = self.gate(x, skip)           # x, not yet upsampled, is the gating signal
+        x = F.interpolate(x, scale_factor=2, mode="nearest")
+        if skip is not None:
+            x = torch.cat([skip, x], dim=1)
+        return self.conv(x)
+
+
+class ResNetUNet(nn.Module):
+    """U-Net (attention=False) or Attention U-Net (attention=True) whose encoder
+    is a ResNet-50. The decoder climbs 1/32 -> 1/2 joining the four skips, then
+    a last step without skip brings it back to full size."""
+    decoder_channels = (256, 128, 64, 32, 16)
+
+    def __init__(self, in_channels=3, num_classes=3, attention=False, pretrained=True,
+                 dropout=0.0, **_):
+        super().__init__()
+        self.encoder = ResNet50Encoder(in_channels, pretrained)
+        enc = ResNet50Encoder.channels
+        ins = (enc[4],) + self.decoder_channels[:-1]        # 2048, 256, 128, 64, 32
+        skips = (enc[3], enc[2], enc[1], enc[0], 0)        # 1024, 512, 256, 64, none
+        self.drop = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
+        self.blocks = nn.ModuleList([UpBlock(i, s, o, attention)
+                                     for i, s, o in zip(ins, skips, self.decoder_channels)])
+        self.head = nn.Conv2d(self.decoder_channels[-1], num_classes, kernel_size=1)
+        # decoder and head start fresh; the encoder keeps its ImageNet weights
+        init_conv_bn(self.blocks)
+        init_conv_bn(self.head)
+
+    @property
+    def gates(self):
+        # read by attention_maps(); None for the plain U-Net variant
+        g = [b.gate for b in self.blocks if b.gate is not None]
+        return g or None
+
+    def forward(self, x):
+        f = self.encoder(x)
+        x = self.drop(f[4])
+        for block, skip in zip(self.blocks, (f[3], f[2], f[1], f[0], None)):
+            x = block(x, skip)
+        return self.head(x)
+
+    def count_parameters(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+
+ARCHES = {"attention_unet": AttentionUNet, "unet": UNet,
+          "attention_unet_r50": lambda **kw: ResNetUNet(attention=True, **kw),
+          "unet_r50": lambda **kw: ResNetUNet(attention=False, **kw)}
 
 
 @torch.no_grad()
@@ -300,20 +406,22 @@ def load_checkpoint(ckpt_path, device=None):
     # default is now nifti - but every one of them was trained on the pngs
     saved.setdefault("data_format", "png")
     cfg = Config(**{k: v for k, v in saved.items() if k in names})
-    model = build_model(cfg).to(device)
+    # no ImageNet download: the checkpoint's own weights replace them right away
+    model = build_model(cfg, pretrained=False).to(device)
     model.load_state_dict(ck["model_state"])
     model.eval()
     return model, cfg, ck
 
 
 
-def build_model(cfg):
-    from src.config import IN_CHANNELS
+def build_model(cfg, pretrained=None):
+    """the network cfg describes. pretrained (ResNet-50 models only) overrides
+    cfg.encoder_weights; load_checkpoint passes False to skip the download"""
     arch = getattr(cfg, "arch", "attention_unet")
     if arch not in ARCHES:
         raise ValueError(f"unknown arch {arch!r}; expected one of {sorted(ARCHES)}")
-    return ARCHES[arch](
-        in_channels=IN_CHANNELS,
+    kwargs = dict(
+        in_channels=getattr(cfg, "in_slices", 1),
         num_classes=cfg.num_classes,
         base_filters=cfg.base_filters,
         depth=cfg.depth,
@@ -321,3 +429,6 @@ def build_model(cfg):
         dropout=cfg.dropout,
         bilinear=cfg.bilinear,
     )
+    if arch.endswith("_r50"):
+        kwargs["pretrained"] = (cfg.encoder_weights == "imagenet") if pretrained is None else pretrained
+    return ARCHES[arch](**kwargs)

@@ -80,10 +80,11 @@ def main():
 
     import torch
     import argparse
-    from src.config import Config, get_device, IN_CHANNELS, ARCH_NAMES, RESOLUTIONS
+    from src.config import Config, get_device, ARCH_NAMES, RESOLUTIONS
     from src.nifti import cache_sizes
     ap = argparse.ArgumentParser(description="check the whole pipeline, no training")
     ap.add_argument("arch", nargs="?", default=Config().arch, choices=ARCH_NAMES)
+    ap.add_argument("--in-slices", type=int, default=1, help="1 = 2D, 3 = 2.5D")
     ap.add_argument("--png", action="store_true", help="test on the internship png export")
     ap.add_argument("--resolution", choices=list(RESOLUTIONS), default=None,
                     help="nifti only. default: the largest slice cache already built, so "
@@ -103,20 +104,27 @@ def main():
               "or name the size here, e.g.  --resolution half, to build it as part of the test.")
         return 1
     cfg = Config(arch=a.arch, data_format="png" if a.png else "nifti", image_size=size,
-                 max_samples=40, batch_size=2, num_workers=0)
+                 in_slices=a.in_slices, max_samples=40, batch_size=2, num_workers=0)
     device = get_device()
+    r50 = cfg.arch.endswith("_r50")
     print(f"\n    architecture under test: {cfg.arch}   data format: {cfg.data_format}"
-          f"   slices {cfg.image_size}x{cfg.image_size}")
+          f"   slices {cfg.image_size}x{cfg.image_size}   in_slices {cfg.in_slices}")
 
     # ---- 3. model ---------------------------------------------------------
-    @check("model builds and matches the diagram's parameter count")
+    @check("model builds (and matches the diagram's parameter count)")
     def _():
         from src.model import build_model
+        if r50:
+            # random encoder weights: the pipeline check needs no ImageNet download
+            m = build_model(cfg, pretrained=False)
+            STATE["model"] = m.to(device)
+            return (f"{m.count_parameters():,} parameters ({type(m).__name__}, ResNet-50 "
+                    f"encoder, random weights for the test; no diagram for this arch)")
         from src.utils.diagram import plan
         m = build_model(cfg)
         P = plan(base_filters=cfg.base_filters, depth=cfg.depth,
                  num_classes=cfg.num_classes, image_size=cfg.image_size,
-                 in_channels=IN_CHANNELS, batch_norm=cfg.batch_norm,
+                 in_channels=cfg.in_slices, batch_norm=cfg.batch_norm,
                  bilinear=cfg.bilinear, arch=cfg.arch)
         if P["total"] != m.count_parameters():
             raise AssertionError(
@@ -128,7 +136,7 @@ def main():
     # ---- 4. forward on a synthetic batch ----------------------------------
     @check("forward pass produces the right output shape", requires=("model",))
     def _():
-        x = torch.randn(2, IN_CHANNELS, cfg.image_size, cfg.image_size, device=device)
+        x = torch.randn(2, cfg.in_slices, cfg.image_size, cfg.image_size, device=device)
         STATE["model"].eval()
         with torch.no_grad():
             out = STATE["model"](x)
@@ -141,16 +149,18 @@ def main():
     @check("attention_maps returns one alpha per gate, coarse to fine", requires=("model",))
     def _():
         from src.model import attention_maps
-        if cfg.arch != "attention_unet":
+        if not cfg.arch.startswith("attention_unet"):
             return f"not applicable to arch={cfg.arch} (no gates by design)"
-        x = torch.randn(1, IN_CHANNELS, cfg.image_size, cfg.image_size, device=device)
+        x = torch.randn(1, cfg.in_slices, cfg.image_size, cfg.image_size, device=device)
         maps = attention_maps(STATE["model"], x)
-        if len(maps) != cfg.depth:
-            raise AssertionError(f"{len(maps)} maps, expected {cfg.depth}")
+        # the ResNet-50 version has 4 gates, on its skips at 1/16, 1/8, 1/4, 1/2
+        n_gates = 4 if r50 else cfg.depth
+        if len(maps) != n_gates:
+            raise AssertionError(f"{len(maps)} maps, expected {n_gates}")
         for i, a in enumerate(maps):
             # gates run deepest-first, and alpha sits on the SKIP's grid (not the
             # gating signal's): gates.0 has g at 16" but x at 32", so alpha is 32".
-            exp = cfg.image_size // 2 ** (cfg.depth - 1 - i)
+            exp = cfg.image_size // 2 ** ((4 - i) if r50 else (cfg.depth - 1 - i))
             if tuple(a.shape) != (1, 1, exp, exp):
                 raise AssertionError(f"map {i}: {tuple(a.shape)}, expected (1,1,{exp},{exp})")
             if a.min() < 0 or a.max() > 1:

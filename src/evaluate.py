@@ -266,7 +266,7 @@ def plot_predictions(model, loader, device, class_names, out_path, n_images=6, p
         # look at each individual image in the batch
         for b in range(x.size(0)):
             gt, pr = y[b], pred[b]
-            item = (denormalize(x[b, 0]), gt, pr)
+            item = (denormalize(x[b, x.shape[1] // 2]), gt, pr)   # middle channel = the slice itself (2.5D)
 
             # FILTER 1: FOREGROUND
             # only keep slices that have at least 200 pixels of actual anatomy
@@ -288,7 +288,7 @@ def plot_predictions(model, loader, device, class_names, out_path, n_images=6, p
         for x, y in loader:
             pred = model(x.to(device)).argmax(1).cpu()
             for b in range(min(x.size(0), n_images)):
-                fg_pool.append((0.0, (denormalize(x[b, 0]), y[b], pred[b])))
+                fg_pool.append((0.0, (denormalize(x[b, x.shape[1] // 2]), y[b], pred[b])))
             break
     if not fg_pool:
         print("[eval] no samples to plot")

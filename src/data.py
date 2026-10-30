@@ -375,10 +375,14 @@ def get_dataloaders(cfg: Config, verbose: bool = True):
         pairs, n_all, index, cache_dir = nifti_slices(cfg, verbose)
         key = lambda p: p[0]
         sources = [f"[data] nifti from {cfg.root_nifti_dir}",
-                   f"[data] slices from {cache_dir}  HU window {list(cfg.hu_window)}"]
+                   f"[data] slices from {cache_dir}  HU window {list(cfg.hu_window)}"
+                   f"  input {cfg.in_slices} slice(s)" + (" (2.5D)" if cfg.in_slices > 1 else "")]
         mk = lambda p, aug: NiftiSliceDataset(p, cache_dir, index, aug, cfg.liver_only,
-                                              cfg.hu_window)
+                                              cfg.hu_window, cfg.in_slices)
     else:
+        if cfg.in_slices != 1:
+            raise ValueError("2.5D input (in_slices > 1) needs the nifti data; "
+                             "the png export has no neighbouring slices to read")
         # data directory
         data_dir = Path(cfg.root_data_dir)
         # image mask tuple, image directory, mask directory
