@@ -237,8 +237,8 @@ def parse_args(argv=None):
     p.add_argument("--group", default=d.group,
                    help="runs are saved in runs/<nifti|internship_png>/<group>/<run-name>")
     p.add_argument("--arch", choices=ARCH_NAMES, default=d.arch,
-                   help="attention_unet (default) or unet, from scratch; *_r50 = the same "
-                        "with an ImageNet-pretrained ResNet-50 encoder")
+                   help="attention_unet (default) or unet, from scratch; *_r50 = the same, "
+                        "or U-Net++ (unetpp_r50), with an ImageNet-pretrained ResNet-50 encoder")
     p.add_argument("--in-slices", type=int, default=d.in_slices,
                    help="slices per input: 1 = 2D (default), 3 = 2.5D, the slice and its "
                         "two neighbours as channels (nifti only)")

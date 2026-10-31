@@ -262,7 +262,7 @@ class UNet(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# U-Net and Attention U-Net with an ImageNet-pretrained ResNet-50 encoder
+# U-Net, Attention U-Net and U-Net++ with an ImageNet-pretrained ResNet-50 encoder
 # ---------------------------------------------------------------------------
 # The encoder half is a ResNet-50 that already learnt edges, textures and
 # shapes on 1.2 million ImageNet photos, so only the decoder starts from
@@ -365,9 +365,63 @@ class ResNetUNet(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
+class ResNetUNetPlusPlus(nn.Module):
+    """U-Net++ (Zhou et al., 2018) with the same ResNet-50 encoder.
+
+    A U-Net joins each encoder level straight to the decoder. U-Net++ puts a
+    row of nodes in between: node (i, j) on level i takes everything already
+    on that level, (i, 0) to (i, j-1), plus node (i+1, j-1) from one level
+    down, upsampled. The encoder features are so refined step by step before
+    they meet the decoder. The last node of each row, i + j = 4, is the
+    decoder path proper and has the U-Net's decoder widths; the nodes before
+    it keep the width of their encoder level (the layout of
+    segmentation_models_pytorch). As in the U-Net, a last step without skip
+    brings the 1/2 size back to full size.
+    """
+    decoder_channels = ResNetUNet.decoder_channels
+
+    def __init__(self, in_channels=3, num_classes=3, pretrained=True, dropout=0.0, **_):
+        super().__init__()
+        self.encoder = ResNet50Encoder(in_channels, pretrained)
+        enc = ResNet50Encoder.channels
+        n = len(enc) - 1                                    # 4 levels with skips
+
+        def width(i, j):
+            return self.decoder_channels[n - 1 - i] if i + j == n else enc[i]
+
+        self.drop = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
+        self.nodes = nn.ModuleDict()
+        for j in range(1, n + 1):
+            for i in range(n + 1 - j):
+                below = enc[i + 1] if j == 1 else width(i + 1, j - 1)
+                # the j nodes already on level i, each enc[i] wide, are its skip
+                self.nodes[f"{i}_{j}"] = UpBlock(below, enc[i] * j, width(i, j))
+        self.last = UpBlock(self.decoder_channels[-2], 0, self.decoder_channels[-1])
+        self.head = nn.Conv2d(self.decoder_channels[-1], num_classes, kernel_size=1)
+        init_conv_bn(self.nodes)
+        init_conv_bn(self.last)
+        init_conv_bn(self.head)
+
+    def forward(self, x):
+        f = self.encoder(x)
+        f[4] = self.drop(f[4])
+        rows = [[feat] for feat in f]                       # rows[i][j] is node (i, j)
+        n = len(f) - 1
+        # column by column: every node of column j needs column j-1 done
+        for j in range(1, n + 1):
+            for i in range(n + 1 - j):
+                node = self.nodes[f"{i}_{j}"]
+                rows[i].append(node(rows[i + 1][j - 1], torch.cat(rows[i], dim=1)))
+        return self.head(self.last(rows[0][n]))
+
+    def count_parameters(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+
 ARCHES = {"attention_unet": AttentionUNet, "unet": UNet,
           "attention_unet_r50": lambda **kw: ResNetUNet(attention=True, **kw),
-          "unet_r50": lambda **kw: ResNetUNet(attention=False, **kw)}
+          "unet_r50": lambda **kw: ResNetUNet(attention=False, **kw),
+          "unetpp_r50": ResNetUNetPlusPlus}
 
 
 @torch.no_grad()

@@ -36,8 +36,8 @@ RESOLUTIONS = {"full": 512, "half": 256, "quarter": 128, "eighth": 64}
 ARCH_NAME = "attention_unet"
 # trained from scratch, the internship's two networks
 SCRATCH_ARCHS = ["attention_unet", "unet"]
-# the same two with an ImageNet-pretrained ResNet-50 as the encoder
-ARCH_NAMES = SCRATCH_ARCHS + ["attention_unet_r50", "unet_r50"]
+# the same two, and U-Net++, with an ImageNet-pretrained ResNet-50 as the encoder
+ARCH_NAMES = SCRATCH_ARCHS + ["attention_unet_r50", "unet_r50", "unetpp_r50"]
 
 @dataclass
 class Config:

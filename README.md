@@ -119,12 +119,19 @@ For NIfTI the slice thickness is read from the scan header, and `view3d --nifti`
 exports the CT in HU at true voxel size. `viewer --from-export 16` reopens such
 an export without the model.
 
-**Models.** `--arch` picks one of four:
+**Models.** `--arch` picks one of five:
 
 | `--arch` | Encoder | Parameters |
 | --- | --- | --- |
 | `unet`, `attention_unet` | trained from scratch, 32 base filters, depth 4 | 7.8 M, 7.9 M |
-| `unet_r50`, `attention_unet_r50` | ResNet-50 pretrained on ImageNet (`--encoder-weights none` = random start) | 32.5 M, 34.4 M |
+| `unet_r50`, `attention_unet_r50` | ResNet-50 pretrained on ImageNet (`--encoder-weights none` = random start), depth 5 | 32.5 M, 34.4 M |
+| `unetpp_r50` | U-Net++ on the same ResNet-50 | 49.0 M |
+
+U-Net++ adds a row of nodes on every skip, so each encoder level is refined
+step by step before it reaches the decoder (the layout of
+segmentation_models_pytorch). It is about 3x slower than `unet_r50` and needs
+twice the memory: at 512 batch 4 takes ~4.1 GB, so use `--batch-size 4` on
+an 8 GB card.
 
 `--in-slices 3` gives any model **2.5D input**: the slice and the one above and
 below as three channels, the label staying the middle slice's (NIfTI only). It
@@ -135,6 +142,7 @@ train about as fast as the from-scratch ones and need ~3.7 GB at batch 8.
 ```bash
 python -m src.train --arch unet_r50 --in-slices 3 --group r50
 python -m src.train --arch attention_unet_r50 --in-slices 3 --group r50
+python -m src.train --arch unetpp_r50 --in-slices 3 --group r50 --batch-size 4
 ```
 
 **Adding a model.** Add the class to `ARCHES` in `src/model.py` and its name to
