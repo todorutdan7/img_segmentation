@@ -1,0 +1,18 @@
+RUN COMPARISON
+================================================================================================
+run                            params  epochs  best@  val fgD  test fgD   liver   tumor  tum/pt    min
+--------------------------------------------------------------------------------------------------------
+attention_unet_r50         34,350,239      40     38   0.8593    0.8330  0.9353  0.7306  0.4346    429
+unet_r50                   32,521,011      40     34   0.8658    0.8536  0.9450  0.7622  0.4694    376
+--------------------------------------------------------------------------------------------------------
+
+Both runs completed 40 epochs - budgets are matched, the comparison is fair.
+
+Caveats that apply either way:
+  - one seed per architecture. Differences under ~0.02 fg Dice are not
+    distinguishable from run-to-run noise without repeats.
+  - 20 test volumes, and tumour burden varies a lot between patients, so the
+    tumour column carries the most variance.
+  - liver / tumor are pooled over all test pixels; tum/pt is tumour Dice per
+    patient by LiTS rules (run reeval to fill it for older runs). Say which
+    one you quote.
