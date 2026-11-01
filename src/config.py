@@ -59,6 +59,8 @@ class Config:
     test_fraction: float = 0.15
     augment: bool = True
     batch_size: int = 8
+    accum_steps: int = 1              # optimiser step every N batches, so the
+                                      # effective batch is batch_size x N
     num_workers: int = 0
 
     liver_only: bool = False          # merge tumor into liver -> 2 classes
@@ -69,7 +71,7 @@ class Config:
     split_by_volume: bool = True      # split whole patients, not individual
                                       # slices, slice split leaks between train and test
 
-    arch: str = ARCH_NAME             # "attention_unet" | "unet" | "attention_unet_r50" | "unet_r50"
+    arch: str = ARCH_NAME             # "attention_unet" | "unet" | "attention_unet_r50" | "unet_r50" | "unetpp_r50"
 
     in_slices: int = 1                # slices given to the model as channels
                                       # 1 = 2D, the slice alone

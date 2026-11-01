@@ -42,24 +42,34 @@ def build_scheduler(optimizer, cfg):
     return None
 
 
-def train_epoch(model, loader, criterion, optimizer, device, scaler=None):
+def train_epoch(model, loader, criterion, optimizer, device, scaler=None, accum_steps=1):
+    # accum_steps > 1 adds up the gradients of that many batches before one
+    # optimiser step: batch 4 x 2 then trains like batch 8 on a GPU too small
+    # for 8 (batch norm still sees 4 slices at a time)
     model.train()
     total, seen = 0.0, 0
-    for x, y in loader:
+    optimizer.zero_grad(set_to_none=True)
+    for i, (x, y) in enumerate(loader, 1):
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
+        # batches in this step; the last step of an epoch can have fewer
+        n = min(accum_steps, len(loader) - (i - 1) // accum_steps * accum_steps)
+        step = i % accum_steps == 0 or i == len(loader)
 
-        optimizer.zero_grad(set_to_none=True)
         if scaler is not None:
             with torch.autocast(device_type=device.type, dtype=torch.float16):
                 loss = criterion(model(x), y)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            scaler.scale(loss / n).backward()
+            if step:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
         else:
             loss = criterion(model(x), y)
-            loss.backward()
-            optimizer.step()
+            (loss / n).backward()
+            if step:
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
 
         total += loss.item() * x.size(0)
         seen += x.size(0)
@@ -121,9 +131,11 @@ def train(cfg: Config, verbose=True):
     model = build_model(cfg).to(device)
     if verbose:
         enc = f"  encoder={cfg.encoder_weights}" if cfg.arch.endswith("_r50") else ""
+        batch = (f"{cfg.batch_size}x{cfg.accum_steps} (= {cfg.batch_size * cfg.accum_steps})"
+                 if cfg.accum_steps > 1 else str(cfg.batch_size))
         print(f"[model] {cfg.arch}  device={device}  "
               f"trainable params={model.count_parameters():,}  in_slices={cfg.in_slices}{enc}  "
-              f"amp={'on' if (cfg.amp and device.type=='cuda') else 'off'}")
+              f"batch={batch}  amp={'on' if (cfg.amp and device.type=='cuda') else 'off'}")
 
     criterion = build_loss(cfg, pixel_counts, device)
     optimizer = build_optimizer(model, cfg)
@@ -152,7 +164,8 @@ def train(cfg: Config, verbose=True):
     epoch = 0
     try:
         for epoch in range(1, cfg.epochs + 1):
-            tr_loss = train_epoch(model, train_loader, criterion, optimizer, device, scaler)
+            tr_loss = train_epoch(model, train_loader, criterion, optimizer, device, scaler,
+                                  cfg.accum_steps)
             va_loss, m = validate(model, val_loader, criterion, device, cfg.num_classes, cfg.class_names)
 
             history["train_loss"].append(tr_loss)
@@ -257,6 +270,9 @@ def parse_args(argv=None):
     p.add_argument("--image-size", type=int, default=None,
                    help="any other slice size in pixels; --resolution is simpler")
     p.add_argument("--batch-size", type=int, default=d.batch_size)
+    p.add_argument("--accum-steps", type=int, default=d.accum_steps,
+                   help="one optimiser step every N batches: --batch-size 4 --accum-steps 2 "
+                        "trains like batch 8 when 8 does not fit the GPU")
     p.add_argument("--num-workers", type=int, default=d.num_workers)
     p.add_argument("--val-fraction", type=float, default=d.val_fraction)
     p.add_argument("--test-fraction", type=float, default=d.test_fraction)
@@ -297,13 +313,15 @@ def parse_args(argv=None):
     p.add_argument("--seed", type=int, default=d.seed)
 
     a = p.parse_args(argv)
+    if a.accum_steps < 1:
+        p.error("--accum-steps must be 1 or more")
     cfg = Config(
         data_dir=a.data_dir, data_format=a.data_format, nifti_dir=a.nifti_dir,
         hu_window=tuple(a.hu_window),
         # the png export is 256 px, so above that it would only be upsampled
         image_size=(RESOLUTIONS[a.resolution] if a.resolution else a.image_size
                     or (d.image_size if a.data_format == "nifti" else 256)),
-        batch_size=a.batch_size, num_workers=a.num_workers,
+        batch_size=a.batch_size, accum_steps=a.accum_steps, num_workers=a.num_workers,
         val_fraction=a.val_fraction, test_fraction=a.test_fraction,
         augment=not a.no_augment, liver_only=a.liver_only,
         skip_empty=not a.keep_empty, max_samples=a.max_samples,

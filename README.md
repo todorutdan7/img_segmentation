@@ -130,8 +130,11 @@ an export without the model.
 U-Net++ adds a row of nodes on every skip, so each encoder level is refined
 step by step before it reaches the decoder (the layout of
 segmentation_models_pytorch). It is about 3x slower than `unet_r50` and needs
-twice the memory: at 512 batch 4 takes ~4.1 GB, so use `--batch-size 4` on
-an 8 GB card.
+twice the memory: at 512 batch 4 takes ~4.1 GB, so batch 8 does not fit an
+8 GB card. `--batch-size 4 --accum-steps 2` then adds up the gradients of two
+batches before each update, so it trains like batch 8 at the same learning
+rate (batch norm still sees 4 slices). Plain batch 4 at the same learning
+rate was unstable: the tumour dropped to 0 in several early epochs.
 
 `--in-slices 3` gives any model **2.5D input**: the slice and the one above and
 below as three channels, the label staying the middle slice's (NIfTI only). It
@@ -142,7 +145,7 @@ train about as fast as the from-scratch ones and need ~3.7 GB at batch 8.
 ```bash
 python -m src.train --arch unet_r50 --in-slices 3 --group r50
 python -m src.train --arch attention_unet_r50 --in-slices 3 --group r50
-python -m src.train --arch unetpp_r50 --in-slices 3 --group r50 --batch-size 4
+python -m src.train --arch unetpp_r50 --in-slices 3 --group r50 --batch-size 4 --accum-steps 2
 ```
 
 **Adding a model.** Add the class to `ARCHES` in `src/model.py` and its name to

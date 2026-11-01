@@ -31,34 +31,40 @@ def load_runs(group_dir: Path):
         M = json.loads(m.read_text()) if m.exists() else {}
         runs.append(dict(name=d.name, dir=d, cfg=H.get("config", {}),
                          hist=H["history"], best=H.get("best_val_dice_fg"),
-                         best_epoch=H.get("best_epoch"),
+                         best_epoch=H.get("best_epoch"), best_select=H.get("best_val"),
                          minutes=H.get("train_minutes"), params=H.get("params"),
                          test=M))
     return runs
 
 
+def batch(r):
+    # batch x accumulation steps, e.g. 4x2 trains like 8
+    b, k = r["cfg"].get("batch_size", 8), r["cfg"].get("accum_steps", 1)
+    return f"{b}x{k}" if k > 1 else str(b)
+
+
 def table(runs):
     L, a = [], lambda s: L.append(s)
     a("RUN COMPARISON")
-    a("=" * 96)
+    a("=" * 111)
     n_ep = [len(r["hist"]["val_dice_fg"]) for r in runs]
     matched = len(set(n_ep)) == 1
 
-    a(f"{'run':<26}{'params':>11}{'epochs':>8}{'best@':>7}{'val fgD':>9}"
+    a(f"{'run':<26}{'params':>11}{'batch':>7}{'epochs':>8}{'best@':>7}{'val fgD':>9}"
       f"{'test fgD':>10}{'liver':>8}{'tumor':>8}{'tum/pt':>8}{'min':>7}")
-    a("-" * 104)
+    a("-" * 111)
     for r in runs:
         t = r["test"]
         pc = t.get("per_class", {})
         # tumour Dice per patient (LiTS rules), written by reeval or train
         tpp = t.get("scores", {}).get("raw", {}).get("per_patient_mean", {}).get("tumor", float("nan"))
-        a(f"{r['cfg'].get('arch', r['name'])[:24]:<26}{r['params']:>11,}"
+        a(f"{r['cfg'].get('arch', r['name'])[:24]:<26}{r['params']:>11,}{batch(r):>7}"
           f"{len(r['hist']['val_dice_fg']):>8}{r['best_epoch']:>7}{r['best']:>9.4f}"
           f"{t.get('mean_dice_fg', float('nan')):>10.4f}"
           f"{pc.get('liver', {}).get('dice', float('nan')):>8.4f}"
           f"{pc.get('tumor', {}).get('dice', float('nan')):>8.4f}"
           f"{tpp:>8.4f}{r['minutes']:>7.0f}")
-    a("-" * 104)
+    a("-" * 111)
 
     if not matched:
         n = min(n_ep)
@@ -79,7 +85,11 @@ def table(runs):
         a(f"   get the full epoch budget, then compare again.")
     else:
         a("")
-        a(f"Both runs completed {n_ep[0]} epochs - budgets are matched, the comparison is fair.")
+        a(f"All runs completed {n_ep[0]} epochs - budgets are matched.")
+    sizes = {r["cfg"].get("batch_size", 8) * r["cfg"].get("accum_steps", 1) for r in runs}
+    if len(sizes) > 1:
+        a("!! The effective batch differs between runs (batch column); a smaller one")
+        a("   at the same learning rate trains noisier, so that part is not like for like.")
 
     a("")
     a("Caveats that apply either way:")
@@ -93,19 +103,28 @@ def table(runs):
     return "\n".join(L)
 
 
-def figure(runs, out_path, dpi=110):
+def figure(runs, out_path, title, dpi=110):
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
-    fig.suptitle("Ablation: plain U-Net vs Attention U-Net", fontsize=15,
-                 fontweight="bold")
+    fig.suptitle(title, fontsize=15, fontweight="bold")
+    # newer runs pick their best epoch by tumour Dice per patient; plot that
+    # when every run has it, foreground Dice otherwise
+    by_tumour = all(r["hist"].get("val_tumor_case") for r in runs)
+    width = 0.8 / len(runs)
 
     for i, r in enumerate(runs):
         c = COLORS[i % len(COLORS)]
         h = r["hist"]
         ep = range(1, len(h["val_dice_fg"]) + 1)
         lbl = f"{r['cfg'].get('arch', r['name'])}  ({r['params']:,} par)"
+        if batch(r) != "8":
+            lbl += f"  batch {batch(r)}"
 
-        axes[0, 0].plot(ep, h["val_dice_fg"], color=c, lw=1.8, label=lbl)
-        axes[0, 0].scatter([r["best_epoch"]], [r["best"]], color=c, zorder=5, s=45)
+        if by_tumour:
+            axes[0, 0].plot(ep, h["val_tumor_case"], color=c, lw=1.8, label=lbl)
+            axes[0, 0].scatter([r["best_epoch"]], [r["best_select"]], color=c, zorder=5, s=45)
+        else:
+            axes[0, 0].plot(ep, h["val_dice_fg"], color=c, lw=1.8, label=lbl)
+            axes[0, 0].scatter([r["best_epoch"]], [r["best"]], color=c, zorder=5, s=45)
 
         axes[0, 1].plot(ep, h["train_loss"], color=c, lw=1.6, label=f"{lbl} train")
         axes[0, 1].plot(ep, h["val_loss"], color=c, lw=1.4, ls="--", alpha=.75,
@@ -115,8 +134,8 @@ def figure(runs, out_path, dpi=110):
 
         t = r["test"].get("per_class", {})
         names = [k for k in ("background", "liver", "tumor") if k in t]
-        x = np.arange(len(names)) + (i - (len(runs) - 1) / 2) * 0.35
-        axes[1, 1].bar(x, [t[k]["dice"] for k in names], width=0.33, color=c, label=lbl)
+        x = np.arange(len(names)) + (i - (len(runs) - 1) / 2) * width
+        axes[1, 1].bar(x, [t[k]["dice"] for k in names], width=width * 0.95, color=c, label=lbl)
         for xi, k in zip(x, names):
             axes[1, 1].text(xi, t[k]["dice"] + .015, f"{t[k]['dice']:.3f}",
                             ha="center", fontsize=8.5)
@@ -129,9 +148,15 @@ def figure(runs, out_path, dpi=110):
                         f"this line only one model was allowed to use",
                         fontsize=8, color="#7E5109", ha="right", style="italic")
 
-    axes[0, 0].set_title("Validation foreground Dice  (the selection metric)",
-                         fontweight="bold", fontsize=11)
-    axes[0, 0].set_xlabel("epoch"); axes[0, 0].set_ylabel("mean fg Dice")
+    if by_tumour:
+        axes[0, 0].set_title("Validation tumour Dice per patient  (picks the best epoch)",
+                             fontweight="bold", fontsize=11)
+        axes[0, 0].set_ylabel("tumour Dice per patient")
+    else:
+        axes[0, 0].set_title("Validation foreground Dice  (the selection metric)",
+                             fontweight="bold", fontsize=11)
+        axes[0, 0].set_ylabel("mean fg Dice")
+    axes[0, 0].set_xlabel("epoch")
     axes[0, 1].set_title("Loss  (solid = train, dashed = val)", fontweight="bold", fontsize=11)
     axes[0, 1].set_xlabel("epoch"); axes[0, 1].set_ylabel("dice_ce loss")
     axes[1, 0].set_title("Validation mean Dice, all classes", fontweight="bold", fontsize=11)
@@ -175,7 +200,7 @@ def main():
     name = a.group.rstrip("/").split("/")[-1]
     (out / f"comparison_{name}.txt").write_text(txt, encoding="utf-8")
     print(f"\n[saved] {out / f'comparison_{name}.txt'}")
-    figure(runs, out / f"comparison_{name}.png", a.dpi)
+    figure(runs, out / f"comparison_{name}.png", f"Run comparison: {a.group}", a.dpi)
 
 
 if __name__ == "__main__":
