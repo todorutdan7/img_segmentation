@@ -46,25 +46,26 @@ def batch(r):
 def table(runs):
     L, a = [], lambda s: L.append(s)
     a("RUN COMPARISON")
-    a("=" * 111)
+    a("=" * 119)
     n_ep = [len(r["hist"]["val_dice_fg"]) for r in runs]
     matched = len(set(n_ep)) == 1
 
-    a(f"{'run':<26}{'params':>11}{'batch':>7}{'epochs':>8}{'best@':>7}{'val fgD':>9}"
+    a(f"{'run':<26}{'params':>11}{'batch':>7}{'lr':>8}{'epochs':>8}{'best@':>7}{'val fgD':>9}"
       f"{'test fgD':>10}{'liver':>8}{'tumor':>8}{'tum/pt':>8}{'min':>7}")
-    a("-" * 111)
+    a("-" * 119)
     for r in runs:
         t = r["test"]
         pc = t.get("per_class", {})
         # tumour Dice per patient (LiTS rules), written by reeval or train
         tpp = t.get("scores", {}).get("raw", {}).get("per_patient_mean", {}).get("tumor", float("nan"))
         a(f"{r['cfg'].get('arch', r['name'])[:24]:<26}{r['params']:>11,}{batch(r):>7}"
+          f"{r['cfg'].get('lr', 1e-3):>8g}"
           f"{len(r['hist']['val_dice_fg']):>8}{r['best_epoch']:>7}{r['best']:>9.4f}"
           f"{t.get('mean_dice_fg', float('nan')):>10.4f}"
           f"{pc.get('liver', {}).get('dice', float('nan')):>8.4f}"
           f"{pc.get('tumor', {}).get('dice', float('nan')):>8.4f}"
           f"{tpp:>8.4f}{r['minutes']:>7.0f}")
-    a("-" * 111)
+    a("-" * 119)
 
     if not matched:
         n = min(n_ep)
@@ -90,6 +91,8 @@ def table(runs):
     if len(sizes) > 1:
         a("!! The effective batch differs between runs (batch column); a smaller one")
         a("   at the same learning rate trains noisier, so that part is not like for like.")
+    if len({r["cfg"].get("lr", 1e-3) for r in runs}) > 1:
+        a("!! The learning rate differs between runs (lr column).")
 
     a("")
     a("Caveats that apply either way:")
@@ -118,6 +121,8 @@ def figure(runs, out_path, title, dpi=110):
         lbl = f"{r['cfg'].get('arch', r['name'])}  ({r['params']:,} par)"
         if batch(r) != "8":
             lbl += f"  batch {batch(r)}"
+        if r["cfg"].get("lr", 1e-3) != 1e-3:
+            lbl += f"  lr {r['cfg']['lr']:g}"
 
         if by_tumour:
             axes[0, 0].plot(ep, h["val_tumor_case"], color=c, lw=1.8, label=lbl)
