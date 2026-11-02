@@ -1,13 +1,16 @@
 RUN COMPARISON
-================================================================================================
-run                            params  epochs  best@  val fgD  test fgD   liver   tumor  tum/pt    min
---------------------------------------------------------------------------------------------------------
-attention_unet_r50         34,350,239      40     38   0.8593    0.8330  0.9353  0.7306  0.4346    429
-unet_r50                   32,521,011      40     34   0.8658    0.8536  0.9450  0.7622  0.4694    376
-unetpp_r50                 48,985,651      40     28   0.7949    0.8189  0.9300  0.7077  0.3316   1308
---------------------------------------------------------------------------------------------------------
+===============================================================================================================
+run                            params  batch  epochs  best@  val fgD  test fgD   liver   tumor  tum/pt    min
+---------------------------------------------------------------------------------------------------------------
+attention_unet_r50         34,350,239      8      40     38   0.8593    0.8330  0.9353  0.7306  0.4346    429
+unet_r50                   32,521,011      8      40     34   0.8658    0.8536  0.9450  0.7622  0.4694    376
+unetpp_r50                 48,985,651      4      40     28   0.7949    0.8189  0.9300  0.7077  0.3316   1308
+unetpp_r50                 48,985,651    4x2      40     39   0.7943    0.8188  0.9328  0.7049  0.3424   1310
+---------------------------------------------------------------------------------------------------------------
 
-Both runs completed 40 epochs - budgets are matched, the comparison is fair.
+All runs completed 40 epochs - budgets are matched.
+!! The effective batch differs between runs (batch column); a smaller one
+   at the same learning rate trains noisier, so that part is not like for like.
 
 Caveats that apply either way:
   - one seed per architecture. Differences under ~0.02 fg Dice are not
