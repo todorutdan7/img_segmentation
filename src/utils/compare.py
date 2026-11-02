@@ -46,26 +46,26 @@ def batch(r):
 def table(runs):
     L, a = [], lambda s: L.append(s)
     a("RUN COMPARISON")
-    a("=" * 119)
+    a("=" * 126)
     n_ep = [len(r["hist"]["val_dice_fg"]) for r in runs]
     matched = len(set(n_ep)) == 1
 
-    a(f"{'run':<26}{'params':>11}{'batch':>7}{'lr':>8}{'epochs':>8}{'best@':>7}{'val fgD':>9}"
-      f"{'test fgD':>10}{'liver':>8}{'tumor':>8}{'tum/pt':>8}{'min':>7}")
-    a("-" * 119)
+    a(f"{'run':<26}{'params':>11}{'slices':>7}{'batch':>7}{'lr':>8}{'epochs':>8}{'best@':>7}"
+      f"{'val fgD':>9}{'test fgD':>10}{'liver':>8}{'tumor':>8}{'tum/pt':>8}{'min':>7}")
+    a("-" * 126)
     for r in runs:
         t = r["test"]
         pc = t.get("per_class", {})
         # tumour Dice per patient (LiTS rules), written by reeval or train
         tpp = t.get("scores", {}).get("raw", {}).get("per_patient_mean", {}).get("tumor", float("nan"))
-        a(f"{r['cfg'].get('arch', r['name'])[:24]:<26}{r['params']:>11,}{batch(r):>7}"
-          f"{r['cfg'].get('lr', 1e-3):>8g}"
+        a(f"{r['cfg'].get('arch', r['name'])[:24]:<26}{r['params']:>11,}"
+          f"{r['cfg'].get('in_slices', 1):>7}{batch(r):>7}{r['cfg'].get('lr', 1e-3):>8g}"
           f"{len(r['hist']['val_dice_fg']):>8}{r['best_epoch']:>7}{r['best']:>9.4f}"
           f"{t.get('mean_dice_fg', float('nan')):>10.4f}"
           f"{pc.get('liver', {}).get('dice', float('nan')):>8.4f}"
           f"{pc.get('tumor', {}).get('dice', float('nan')):>8.4f}"
           f"{tpp:>8.4f}{r['minutes']:>7.0f}")
-    a("-" * 119)
+    a("-" * 126)
 
     if not matched:
         n = min(n_ep)
@@ -119,6 +119,8 @@ def figure(runs, out_path, title, dpi=110):
         h = r["hist"]
         ep = range(1, len(h["val_dice_fg"]) + 1)
         lbl = f"{r['cfg'].get('arch', r['name'])}  ({r['params']:,} par)"
+        if r["cfg"].get("in_slices", 1) > 1:
+            lbl += f"  {r['cfg']['in_slices']} slices"
         if batch(r) != "8":
             lbl += f"  batch {batch(r)}"
         if r["cfg"].get("lr", 1e-3) != 1e-3:
