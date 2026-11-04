@@ -169,6 +169,22 @@ because tumour is 0.12% of pixels and liver about 2%, so accuracy is never used.
   outside it is removed. `reeval` and `train` report every score raw and
   cleaned; `reeval --min-tumor-voxels N` also drops tumour pieces under N voxels.
 
+**k-fold.** With about 20 patients in one test set, one patient can move the
+mean tumour Dice by 0.03, so small gaps between models are noise. `--folds 5
+--fold i` splits the 131 patients into five folds by patient and tests fold `i`
+(26-27 patients); validation is 15% of the patients from the other folds and
+the rest (~85) train. Five runs test every patient once. `--folds 0`, the
+default, is the fixed 70/15/15 split every earlier run used.
+
+```bash
+for f in 0 1 2 3 4; do python -m src.train --arch unet_r50 --in-slices 3 --group kfold --folds 5 --fold $f; done
+python -m src.utils.kfold --group nifti/kfold         # per fold, over all patients, model vs model
+```
+
+`kfold` groups the runs by model, gives the score over all 131 patients and
+between folds, and compares two models patient by patient (mean difference and
+its standard error), writing `results/nifti/kfold_<group>.txt`.
+
 ## Future work
 
 - **Tumour Dice, the main goal.** On the internship PNGs the tumour was the weak

@@ -70,6 +70,11 @@ class Config:
     max_samples: int = 0              # 0 = use everything, used for quick runs
     split_by_volume: bool = True      # split whole patients, not individual
                                       # slices, slice split leaks between train and test
+    folds: int = 0                    # 0 = the fixed split above (15% test)
+                                      # k = k-fold by patient: fold i tests 1/k
+                                      # of the patients, so k runs test every
+                                      # patient once. val stays val_fraction
+    fold: int = 0                     # which fold this run tests, 0..folds-1
 
     arch: str = ARCH_NAME             # "attention_unet" | "unet" | "attention_unet_r50" | "unet_r50" | "unetpp_r50"
 

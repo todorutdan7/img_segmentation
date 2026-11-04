@@ -301,7 +301,8 @@ def foreground_index(pairs, cache_path: Path, verbose=True):
 
 # divide dataset into train, validation, test
 
-def split_pairs(pairs, val_fraction, test_fraction, seed, by_volume=True, key=None):
+def split_pairs(pairs, val_fraction, test_fraction, seed, by_volume=True, key=None,
+                folds=0, fold=0):
 
     # pairs - list of (image, mask) tuples
     # val_fraction 0.15
@@ -310,6 +311,8 @@ def split_pairs(pairs, val_fraction, test_fraction, seed, by_volume=True, key=No
     # key - how to get the volume id of one entry. default reads it from the
     # png filename; the nifti loader passes its own, with the same "volume-16"
     # ids, so both formats put the same patients in test
+    # folds, fold - k-fold: fold i of k is tested on 1/k of the patients, see
+    # split_volumes
 
 
     rng = random.Random(seed)
@@ -333,17 +336,35 @@ def split_pairs(pairs, val_fraction, test_fraction, seed, by_volume=True, key=No
         by_vol.setdefault(key(p), []).append(i)
     # vols holds [{volume0 : volume0_slices}, {volume1 : volume1_slices, ....]
     vols = sorted(by_vol)
+    # sets holds [train_volumes, val_volumes, test_volumes]
+    sets = split_volumes(vols, val_fraction, test_fraction, seed, folds, fold)
+    return [[pairs[i] for v in s for i in by_vol[v]] for s in sets], vols, sets
+
+
+def split_volumes(vols, val_fraction, test_fraction, seed, folds=0, fold=0):
+
+    # vols - sorted patient ids
+    # returns [train, val, test] lists of patient ids
+    # folds=0 is the fixed split every run so far used: 15% test, 15% val, 70% train
+    # folds=k: the shuffled patients are dealt into k folds, fold i is the test
+    # set, so over k runs every patient is tested exactly once. val is 15% of
+    # all patients, taken from the other folds; train gets the rest (~65%)
+
+    vols = list(vols)
     # shuffle randomly
-    rng.shuffle(vols)
+    random.Random(seed).shuffle(vols)
+    # give validation 0.15
+    n_val = max(1, int(round(len(vols) * val_fraction)))
+
+    if folds:
+        test = vols[fold::folds]
+        rest = [v for v in vols if v not in test]
+        return [rest[n_val:], rest[:n_val], test]
 
     # give test 0.15 eg volume12, volume45, ....
     n_test = max(1, int(round(len(vols) * test_fraction)))
-    # give validation 0.15
-    n_val = max(1, int(round(len(vols) * val_fraction)))
     # train gets rest of 0.7
-    # sets holds [train_pairs, val_pairs, test_pairs]
-    sets = [vols[n_test + n_val:], vols[n_test:n_test + n_val], vols[:n_test]]
-    return [[pairs[i] for v in s for i in by_vol[v]] for s in sets], vols, sets
+    return [vols[n_test + n_val:], vols[n_test:n_test + n_val], vols[:n_test]]
 
 
 # calculates distribution of classes across the dataset by counting pixels
@@ -405,7 +426,8 @@ def get_dataloaders(cfg: Config, verbose: bool = True):
         pairs = sorted(rng.sample(pairs, cfg.max_samples))
 
     # train, validation, test
-    split = split_pairs(pairs, cfg.val_fraction, cfg.test_fraction, cfg.seed, cfg.split_by_volume, key)
+    split = split_pairs(pairs, cfg.val_fraction, cfg.test_fraction, cfg.seed, cfg.split_by_volume, key,
+                        cfg.folds, cfg.fold)
 
     # split by volume
     if cfg.split_by_volume:
@@ -441,6 +463,8 @@ def get_dataloaders(cfg: Config, verbose: bool = True):
             print(f"[data] split by VOLUME: {len(vols)} volumes -> "
                   f"train={len(vol_sets[0])} val={len(vol_sets[1])} test={len(vol_sets[2])}"
                   f"  (no patient appears in two splits)")
+            if cfg.folds:
+                print(f"[data] k-fold: fold {cfg.fold} of 0..{cfg.folds - 1} is the test set")
         else:
             print("[data] split by slice - adjacent slices leak between splits, "
                   "scores will be optimistic")

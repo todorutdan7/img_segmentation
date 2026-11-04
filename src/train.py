@@ -276,6 +276,11 @@ def parse_args(argv=None):
     p.add_argument("--num-workers", type=int, default=d.num_workers)
     p.add_argument("--val-fraction", type=float, default=d.val_fraction)
     p.add_argument("--test-fraction", type=float, default=d.test_fraction)
+    p.add_argument("--folds", type=int, default=d.folds,
+                   help="k-fold by patient: 5 = five runs, each testing a different fifth "
+                        "of the patients (--test-fraction is then unused). 0 = the fixed split")
+    p.add_argument("--fold", type=int, default=d.fold,
+                   help="which fold this run tests, 0..folds-1")
     p.add_argument("--no-augment", action="store_true")
     p.add_argument("--liver-only", action="store_true",
                    help="merge tumour into liver -> 2 classes, much easier")
@@ -315,6 +320,13 @@ def parse_args(argv=None):
     a = p.parse_args(argv)
     if a.accum_steps < 1:
         p.error("--accum-steps must be 1 or more")
+    if a.folds == 1 or a.folds < 0:
+        p.error("--folds must be 0 (fixed split) or 2 or more")
+    if a.folds and not 0 <= a.fold < a.folds:
+        p.error(f"--fold must be 0..{a.folds - 1}")
+    if a.folds and a.split_by_slice:
+        p.error("--folds splits patients; it cannot be used with --split-by-slice")
+    fold = f"_fold{a.fold}" if a.folds else ""
     cfg = Config(
         data_dir=a.data_dir, data_format=a.data_format, nifti_dir=a.nifti_dir,
         hu_window=tuple(a.hu_window),
@@ -325,7 +337,7 @@ def parse_args(argv=None):
         val_fraction=a.val_fraction, test_fraction=a.test_fraction,
         augment=not a.no_augment, liver_only=a.liver_only,
         skip_empty=not a.keep_empty, max_samples=a.max_samples,
-        split_by_volume=not a.split_by_slice,
+        split_by_volume=not a.split_by_slice, folds=a.folds, fold=a.fold,
         arch=a.arch, in_slices=a.in_slices, encoder_weights=a.encoder_weights,
         base_filters=a.base_filters, depth=a.depth, dropout=a.dropout,
         batch_norm=not a.no_batch_norm, bilinear=a.bilinear,
@@ -334,7 +346,7 @@ def parse_args(argv=None):
         weight_decay=a.weight_decay, scheduler=a.scheduler,
         select_metric=a.select_metric,
         early_stop_patience=a.early_stop_patience, amp=not a.no_amp, seed=a.seed,
-        run_name=a.run_name or f"{a.arch}_{int(time.time())}", group=a.group,
+        run_name=a.run_name or f"{a.arch}{fold}_{int(time.time())}", group=a.group,
     )
     return cfg
 

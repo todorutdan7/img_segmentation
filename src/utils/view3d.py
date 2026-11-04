@@ -189,11 +189,10 @@ DISPLAY_WINDOW = (-160, 240)
 
 
 def test_patients(keys, cfg):
-    """the patients training held out: same sort, same seeded shuffle, same cut"""
-    import random
-    shuffled = sorted(keys)
-    random.Random(cfg.seed).shuffle(shuffled)
-    return shuffled[:max(1, round(len(shuffled) * cfg.test_fraction))]
+    """the patients training held out: the same split training made, k-fold included"""
+    from src.data import split_volumes
+    return split_volumes(sorted(keys), cfg.val_fraction, cfg.test_fraction, cfg.seed,
+                         cfg.folds, cfg.fold)[2]
 
 
 def nifti_patient(cfg, want=None):
