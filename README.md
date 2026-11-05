@@ -85,6 +85,7 @@ python -m src.utils.compare --group nifti/baseline    # side-by-side table and f
 python -m src.utils.reeval --group nifti/baseline     # re-score, incl. Dice per patient
 python -m src.utils.viewer --volume 16                # a trained model on one patient, 2D + 3D
 python -m src.utils.view3d --volume 16 --nifti        # figures + .nii.gz for 3D Slicer
+python -m src.utils.gradcam --run runs/nifti/r50/<run>  # where the model looks for tumour
 ```
 
 The data format defaults to NIfTI. `--group` picks the folder under `runs/`;
@@ -184,6 +185,15 @@ python -m src.utils.kfold --group nifti/kfold         # per fold, over all patie
 `kfold` groups the runs by model, gives the score over all 131 patients and
 between folds, and compares two models patient by patient (mean difference and
 its standard error), writing `results/nifti/kfold_<group>.txt`.
+
+**Grad-CAM.** `gradcam` explains the tumour class (Seg-Grad-CAM): for the slice
+with the most tumour of each test patient of the run (its own fold for a k-fold
+run), the gradient of the tumour score over the predicted tumour, or over the
+true one when none was predicted, weights one layer's feature maps into a heat
+map. Three depths by default (deep encoder, bottleneck, decoder at 1/8);
+`--layers` picks others. It writes a figure and a table with the share of the
+heat on the tumour and the liver against their share of the slice. `--cpu`
+leaves the GPU to a training run.
 
 ## Future work
 
