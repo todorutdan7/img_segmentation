@@ -1,0 +1,11 @@
+K-FOLD SUMMARY  (Dice per patient after the 3D clean-up)
+====================================================================================================
+unet_r50  3 slice(s)  lr 0.0001  batch 8
+  fold  patients  best@   tum/pt   median   pooled  liver/pt   run
+     0        27     30    0.430    0.436    0.606     0.938   unet_r50_fold0_1793875957
+     1        26     29    0.567    0.624    0.661     0.953   unet_r50_fold1_1793901583
+     2        26     24    0.514    0.635    0.779     0.949   unet_r50_fold2_1793928648
+     3        26     27    0.599    0.656    0.730     0.946   unet_r50_fold3_1793956099
+     4        26     23    0.451    0.524    0.817     0.901   unet_r50_fold4_1793981956
+  all 131 patients: tumour/pt mean 0.512  median 0.609   liver/pt mean 0.938
+  between folds: tumour/pt 0.512 +- 0.065 (min 0.430, max 0.599)
