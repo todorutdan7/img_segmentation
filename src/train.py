@@ -1,5 +1,6 @@
 
 import argparse
+import gc
 import json
 import random
 import time
@@ -224,6 +225,17 @@ def train(cfg: Config, verbose=True):
     if not ckpt_path.exists():
         print(f"[train] no checkpoint at {ckpt_path} - skipping test evaluation.")
         return model, {}
+
+    # Let go of the training data before the test. Every scan read in training
+    # stays memory-mapped, so its pages count as this process's memory; with the
+    # test scans on top, ws11 (31 GB) ran short and systemd-oomd killed the run
+    # during the test scoring (8 Nov). Unmapped, the kernel can drop them freely.
+    for dl in (train_loader, val_loader):
+        if hasattr(dl.dataset, "close"):
+            dl.dataset.close()
+    del train_loader, val_loader          # also stops their workers, if any
+    gc.collect()
+
     model.load_state_dict(torch.load(ckpt_path, map_location=device)["model_state"])
     metrics = evaluate(model, test_loader, device, cfg.class_names, out_dir,
                        split="test", verbose=verbose)

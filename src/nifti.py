@@ -400,6 +400,10 @@ class NiftiSliceDataset(LiTSDataset):
         state["_maps"] = {}
         return state
 
+    def close(self):
+        """unmap every scan opened so far; the next read reopens what it needs"""
+        self._maps.clear()
+
     def _load(self, i):
         key, z = self.pairs[i]
         if key not in self._maps:
