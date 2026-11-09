@@ -277,7 +277,7 @@ def main():
 
     stats, seen = measure(model, test_loader, device, a.n_slices)
 
-    out = results_dir(cfg.data_format)
+    out = results_dir(cfg.data_format, "attention" if cfg.data_format == "nifti" else None)
     figure(model, samples, stats, out / "attention_maps.png", a.dpi)
 
     txt = report(stats, seen)

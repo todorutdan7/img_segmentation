@@ -25,7 +25,7 @@ The data comes from whatever the model was trained on. A nifti model reads the
 patient from the nifti cache, with the real slice thickness from the scan
 header; a png model reads the internship's png slices.
 
-WRITES into results/nifti/ or results/internship_png/
+WRITES into results/nifti/viewer/ or results/internship_png/
 
     view3d_<patient>_slices.png     axial / coronal / sagittal cuts, ground truth on top, prediction below
     view3d_<patient>_surfaces.png   liver and tumor as 3D surfaces, 3 angles
@@ -667,7 +667,7 @@ def main_nifti(a, model, cfg, device):
     for name, g, pp, d in volume_stats(gt, pr):
         print(f"   {name:<10} true {g:>9,} vox   predicted {pp:>9,} vox   Dice {d:.4f}")
 
-    out = results_dir("nifti")
+    out = results_dir("nifti", "viewer")
     tag = key.replace("-", "")
     side = ct.shape[1]
     z_scale = a.z_scale or nifti_z_scale(entry, side)

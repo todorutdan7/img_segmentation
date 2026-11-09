@@ -3,22 +3,27 @@
     python -m src.utils.compare --group nifti/baseline
     python -m src.utils.compare --group internship_png/ablation_2070
 
-Reads every history.json / metrics_test.json under runs/<group>/ and writes a
-comparison figure and table. Flags unequal training budgets loudly, because a
-run that stopped early has not been given the same chance as one that did not,
-and comparing their best scores is not an architecture comparison.
+Reads every history.json / metrics_test.json under runs/<group>/ and writes,
+for the nifti runs into results/nifti/comparisons/:
+
+  <group>.txt          the table below
+  <group>.png          the test scores of every run, side by side
+  <group>_curves.png   the validation score per epoch, one panel per run
+  <group>_loss.png     train and validation loss, one panel per run
+
+(the finished internship runs keep results/internship_png/comparison_<group>.*).
+The overview of every run together is  python -m src.utils.results.
+
+Flags unequal training budgets loudly, because a run that stopped early has not
+been given the same chance as one that did not, and comparing their best scores
+is not an architecture comparison.
 """
 
 import argparse
 import json
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
-
-COLORS = ["#2E6DA4", "#C0392B", "#2E8B57", "#8E44AD", "#D9822B"]
 
 
 def load_runs(group_dir: Path):
@@ -57,7 +62,7 @@ def table(runs):
         t = r["test"]
         pc = t.get("per_class", {})
         # tumour Dice per patient (LiTS rules), written by reeval or train
-        tpp = t.get("scores", {}).get("raw", {}).get("per_patient_mean", {}).get("tumor", float("nan"))
+        tpp = t.get("scores", {}).get("cleaned", {}).get("per_patient_mean", {}).get("tumor", float("nan"))
         a(f"{r['cfg'].get('arch', r['name'])[:24]:<26}{r['params']:>11,}"
           f"{r['cfg'].get('in_slices', 1):>7}{batch(r):>7}{r['cfg'].get('lr', 1e-3):>8g}"
           f"{len(r['hist']['val_dice_fg']):>8}{r['best_epoch']:>7}{r['best']:>9.4f}"
@@ -101,85 +106,23 @@ def table(runs):
     a("  - 20 test volumes, and tumour burden varies a lot between patients, so the")
     a("    tumour column carries the most variance.")
     a("  - liver / tumor are pooled over all test pixels; tum/pt is tumour Dice per")
-    a("    patient by LiTS rules (run reeval to fill it for older runs). Say which")
-    a("    one you quote.")
+    a("    patient by LiTS rules after the 3D clean-up (run reeval to fill it for")
+    a("    older runs). Say which one you quote.")
     return "\n".join(L)
 
 
-def figure(runs, out_path, title, dpi=110):
-    fig, axes = plt.subplots(2, 2, figsize=(14, 9))
-    fig.suptitle(title, fontsize=15, fontweight="bold")
-    # newer runs pick their best epoch by tumour Dice per patient; plot that
-    # when every run has it, foreground Dice otherwise
-    by_tumour = all(r["hist"].get("val_tumor_case") for r in runs)
-    width = 0.8 / len(runs)
-
-    for i, r in enumerate(runs):
-        c = COLORS[i % len(COLORS)]
-        h = r["hist"]
-        ep = range(1, len(h["val_dice_fg"]) + 1)
-        lbl = f"{r['cfg'].get('arch', r['name'])}  ({r['params']:,} par)"
-        if r["cfg"].get("in_slices", 1) > 1:
-            lbl += f"  {r['cfg']['in_slices']} slices"
-        if batch(r) != "8":
-            lbl += f"  batch {batch(r)}"
-        if r["cfg"].get("lr", 1e-3) != 1e-3:
-            lbl += f"  lr {r['cfg']['lr']:g}"
-
-        if by_tumour:
-            axes[0, 0].plot(ep, h["val_tumor_case"], color=c, lw=1.8, label=lbl)
-            axes[0, 0].scatter([r["best_epoch"]], [r["best_select"]], color=c, zorder=5, s=45)
-        else:
-            axes[0, 0].plot(ep, h["val_dice_fg"], color=c, lw=1.8, label=lbl)
-            axes[0, 0].scatter([r["best_epoch"]], [r["best"]], color=c, zorder=5, s=45)
-
-        axes[0, 1].plot(ep, h["train_loss"], color=c, lw=1.6, label=f"{lbl} train")
-        axes[0, 1].plot(ep, h["val_loss"], color=c, lw=1.4, ls="--", alpha=.75,
-                        label=f"{lbl} val")
-
-        axes[1, 0].plot(ep, h["val_dice"], color=c, lw=1.8, label=lbl)
-
-        t = r["test"].get("per_class", {})
-        names = [k for k in ("background", "liver", "tumor") if k in t]
-        x = np.arange(len(names)) + (i - (len(runs) - 1) / 2) * width
-        axes[1, 1].bar(x, [t[k]["dice"] for k in names], width=width * 0.95, color=c, label=lbl)
-        for xi, k in zip(x, names):
-            axes[1, 1].text(xi, t[k]["dice"] + .015, f"{t[k]['dice']:.3f}",
-                            ha="center", fontsize=8.5)
-
-    n_ep = [len(r["hist"]["val_dice_fg"]) for r in runs]
-    if len(set(n_ep)) > 1:
-        axes[0, 0].axvline(min(n_ep), color="#7E5109", ls=":", lw=1.6)
-        axes[0, 0].text(min(n_ep) - 0.5, axes[0, 0].get_ylim()[0] + 0.02,
-                        f"shortest run ends ({min(n_ep)})  →  everything right of\n"
-                        f"this line only one model was allowed to use",
-                        fontsize=8, color="#7E5109", ha="right", style="italic")
-
-    if by_tumour:
-        axes[0, 0].set_title("Validation tumour Dice per patient  (picks the best epoch)",
-                             fontweight="bold", fontsize=11)
-        axes[0, 0].set_ylabel("tumour Dice per patient")
-    else:
-        axes[0, 0].set_title("Validation foreground Dice  (the selection metric)",
-                             fontweight="bold", fontsize=11)
-        axes[0, 0].set_ylabel("mean fg Dice")
-    axes[0, 0].set_xlabel("epoch")
-    axes[0, 1].set_title("Loss  (solid = train, dashed = val)", fontweight="bold", fontsize=11)
-    axes[0, 1].set_xlabel("epoch"); axes[0, 1].set_ylabel("dice_ce loss")
-    axes[1, 0].set_title("Validation mean Dice, all classes", fontweight="bold", fontsize=11)
-    axes[1, 0].set_xlabel("epoch"); axes[1, 0].set_ylabel("mean Dice")
-    axes[1, 1].set_title("Test Dice per class", fontweight="bold", fontsize=11)
-    axes[1, 1].set_xticks(np.arange(len(names))); axes[1, 1].set_xticklabels(names)
-    axes[1, 1].set_ylim(0, 1.08); axes[1, 1].set_ylabel("Dice")
-
-    for ax in axes.ravel():
-        ax.grid(alpha=.3)
-        ax.legend(fontsize=8)
-
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=dpi, facecolor="white")
-    plt.close(fig)
-    print(f"[saved] {out_path}")
+def figures(group_dir, out_base, title):
+    """three plain figures instead of one crowded one (see the module docstring)"""
+    from src.utils import plotstyle as ps
+    from src.utils.results import Run, small_multiples, fig_test_scores, curve
+    ps.style()
+    runs = [Run(h.parent) for h in sorted(group_dir.glob("*/history.json"))]
+    fig_test_scores(runs, Path(f"{out_base}.png"), f"Test scores: {title}")
+    # the curve that picked the best epoch: tumour Dice per patient, or the
+    # foreground Dice for runs from before that rule
+    metric = "val_tumor_case" if all(curve(r, "val_tumor_case") for r in runs) else "val_dice_fg"
+    small_multiples(runs, Path(f"{out_base}_curves.png"), "dice", metric)
+    small_multiples(runs, Path(f"{out_base}_loss.png"), "loss")
 
 
 def main():
@@ -188,7 +131,6 @@ def main():
     p = argparse.ArgumentParser(description="compare the runs in a group")
     p.add_argument("--group", default="nifti/baseline",
                    help="folder under runs/, e.g. nifti/baseline or internship_png/ablation_2070")
-    p.add_argument("--dpi", type=int, default=110)
     a = p.parse_args()
 
     gdir = Path(RUNS_DIR) / a.group
@@ -202,12 +144,14 @@ def main():
     txt = table(runs)
     print(txt)
 
-    # results/nifti/comparison_baseline.* or results/internship_png/comparison_ablation_2070.*
-    out = results_dir("png" if a.group.split("/")[0] == "internship_png" else "nifti")
     name = a.group.rstrip("/").split("/")[-1]
-    (out / f"comparison_{name}.txt").write_text(txt, encoding="utf-8")
-    print(f"\n[saved] {out / f'comparison_{name}.txt'}")
-    figure(runs, out / f"comparison_{name}.png", f"Run comparison: {a.group}", a.dpi)
+    if a.group.split("/")[0] == "internship_png":
+        base = results_dir("png") / f"comparison_{name}"
+    else:
+        base = results_dir("nifti", "comparisons") / name
+    Path(f"{base}.txt").write_text(txt, encoding="utf-8")
+    print(f"\n[saved] {base}.txt")
+    figures(gdir, base, a.group)
 
 
 if __name__ == "__main__":

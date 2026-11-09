@@ -16,8 +16,12 @@ for _d in (DATA_DIR, RUNS_DIR, RESULTS_DIR, ARCH_DIR):
 FORMAT_DIRS = {"nifti": "nifti", "png": "internship_png"}
 
 
-def results_dir(data_format) -> Path:
+def results_dir(data_format, sub=None) -> Path:
+    """results/<format>/, or a topic folder inside it: summary, comparisons,
+    kfold, gradcam, dataset, viewer, cases, baseline (see results/nifti/README.md)"""
     d = RESULTS_DIR / FORMAT_DIRS[data_format]
+    if sub:
+        d = d / sub
     d.mkdir(parents=True, exist_ok=True)
     return d
 

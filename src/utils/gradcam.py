@@ -11,10 +11,10 @@ feature maps, averaged over the slice, weights each map; their weighted sum
 through a ReLU is the heat map, scaled to 0..1.
 
 Uses the run's own test patients (the fold it held out, for a k-fold run), the
-slice with the most tumour of each. Writes to results/nifti/:
+slice with the most tumour of each. Writes to results/nifti/gradcam/:
 
-  gradcam_<run>.png   heat maps at three depths of the network, for a few patients
-  gradcam_<run>.txt   share of the heat inside the tumour and inside the liver,
+  <run>.png   heat maps at three depths of the network, for a few patients
+  <run>.txt   share of the heat inside the tumour and inside the liver,
                       against the share of the slice they cover, every test patient
 
 The second is the number to quote: a model that looks in the right place puts
@@ -199,10 +199,10 @@ def main():
         raise SystemExit("no test patient with tumour")
     txt = report(rows, no_tumour, layers, run.name)
     print(txt)
-    out = results_dir("nifti")
-    (out / f"gradcam_{run.name}.txt").write_text(txt, encoding="utf-8")
-    print(f"[saved] {out / f'gradcam_{run.name}.txt'}")
-    figure(rows, layers, out / f"gradcam_{run.name}.png",
+    out = results_dir("nifti", "gradcam")
+    (out / f"{run.name}.txt").write_text(txt, encoding="utf-8")
+    print(f"[saved] {out / f'{run.name}.txt'}")
+    figure(rows, layers, out / f"{run.name}.png",
            f"Grad-CAM, tumour class: {run.name}", a.patients, a.dpi)
 
 

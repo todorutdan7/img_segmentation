@@ -13,7 +13,7 @@ Each model is scored on its own 20 test patients, read three ways:
     nifti as HU     HU clipped to the window, the input a model trained on NIfTI
                     gets. The png models never saw input like this
 
-WRITES results/nifti/old_models_on_nifti.txt
+WRITES results/nifti/baseline/old_models_on_nifti.txt
 """
 
 import argparse
@@ -85,7 +85,7 @@ def main():
           "understand Hounsfield units. Models for the NIfTI data have to be trained on it."]
     text = "\n".join(L)
     print("\n" + text)
-    out = results_dir("nifti") / "old_models_on_nifti.txt"
+    out = results_dir("nifti", "baseline") / "old_models_on_nifti.txt"
     out.write_text(text + "\n", encoding="utf-8")
     print(f"\n[saved] {out}")
 

@@ -2,10 +2,10 @@ RUN COMPARISON
 ==============================================================================================================================
 run                            params slices  batch      lr  epochs  best@  val fgD  test fgD   liver   tumor  tum/pt    min
 ------------------------------------------------------------------------------------------------------------------------------
-attention_unet              7,894,783      1      8   0.001      40     39   0.8089    0.8426  0.9241  0.7611  0.4300    443
-unet                        7,763,107      3      8   0.001      40     38   0.8311    0.8337  0.9207  0.7467  0.3973    381
-unet                        7,762,531      1      8   0.001      40     40   0.7947    0.8420  0.9219  0.7621  0.4120    374
-unet_r50                   32,514,739      1      8   0.001      40     39   0.8214    0.8452  0.9272  0.7633  0.4367    374
+attention_unet              7,894,783      1      8   0.001      40     39   0.8089    0.8426  0.9241  0.7611  0.4450    443
+unet                        7,763,107      3      8   0.001      40     38   0.8311    0.8337  0.9207  0.7467  0.3760    381
+unet                        7,762,531      1      8   0.001      40     40   0.7947    0.8420  0.9219  0.7621  0.4235    374
+unet_r50                   32,514,739      1      8   0.001      40     39   0.8214    0.8452  0.9272  0.7633  0.4484    374
 ------------------------------------------------------------------------------------------------------------------------------
 
 All runs completed 40 epochs - budgets are matched.
@@ -16,5 +16,5 @@ Caveats that apply either way:
   - 20 test volumes, and tumour burden varies a lot between patients, so the
     tumour column carries the most variance.
   - liver / tumor are pooled over all test pixels; tum/pt is tumour Dice per
-    patient by LiTS rules (run reeval to fill it for older runs). Say which
-    one you quote.
+    patient by LiTS rules after the 3D clean-up (run reeval to fill it for
+    older runs). Say which one you quote.

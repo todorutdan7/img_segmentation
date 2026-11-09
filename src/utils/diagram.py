@@ -91,7 +91,7 @@ def plan(base_filters=32, depth=4, num_classes=3, image_size=256,
         + sum(u["params"] for u in ups) + head["params"]
 
     return dict(f=f, hw=hw, depth=depth, image_size=image_size, arch=arch,
-                title="Attention U-Net" if attention else "U-Net (baseline)",
+                title="Attention U-Net" if attention else "U-Net",
                 in_channels=in_channels, num_classes=num_classes,
                 batch_norm=batch_norm, bilinear=bilinear,
                 encoder=enc, gates=gates, ups=ups, head=head, total=total)
@@ -470,7 +470,8 @@ def up_panel(ax, P):
             "resolution arrives in full — that is the baseline's weakness.")
     ax.text(50, 4,
             "The transposed convolution restores resolution but invents the detail; the skip supplies real edges from the encoder.\n"
-            + tail + "  F.pad before concat handles odd sizes; at 256² it is a no-op.",
+            + tail + f"  F.pad before concat handles odd sizes; at {P['image_size']}² it is "
+            + ("a no-op." if P["image_size"] % 2 ** P["depth"] == 0 else "needed."),
             ha="center", va="center", fontsize=8.6, color="#566573", style="italic")
 
 
@@ -560,7 +561,9 @@ def draw(P, out_path, dpi=100):
                           hspace=0.22, left=0.035, right=0.975,
                           top=0.962, bottom=0.018)
     fig.patch.set_facecolor("white")
-    fig.suptitle(f"{P.get('title', 'Attention U-Net')} — architecture", fontsize=19,
+    S, c = P["image_size"], P["in_channels"]
+    fig.suptitle(f"{P.get('title', 'Attention U-Net')}, trained from scratch — architecture "
+                 f"({S} x {S}, {'2D' if c == 1 else f'{c} slices'})", fontsize=19,
                  fontweight="bold", y=0.988, color="#1B2631")
 
     r = 0
@@ -602,8 +605,10 @@ def main():
                  bilinear=cfg.bilinear,
                  arch=arch)
 
+        # architecture/nifti/<arch>.png; the internship's 256 px drawings are in
+        # architecture/internship_png/
         out = Path(a.out) if a.out and len(arches) == 1 \
-            else Path(ARCH_DIR) / f"{arch}_diagram.png"
+            else Path(ARCH_DIR) / "nifti" / f"{arch}.png"
         out.parent.mkdir(parents=True, exist_ok=True)
 
         for dpi in (a.dpi, 80, 65):

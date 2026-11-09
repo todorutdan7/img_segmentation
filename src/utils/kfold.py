@@ -112,7 +112,7 @@ def main():
     txt = "\n".join(lines)
     print(txt)
 
-    out = results_dir("nifti") / f"kfold_{a.group.rstrip('/').split('/')[-1]}.txt"
+    out = results_dir("nifti", "kfold") / f"{a.group.rstrip('/').split('/')[-1]}.txt"
     out.write_text(txt, encoding="utf-8")
     print(f"\n[saved] {out}")
 

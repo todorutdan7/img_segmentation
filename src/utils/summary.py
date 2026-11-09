@@ -605,7 +605,10 @@ def main():
     model = build_model(cfg)
     records = tag_stages(collect_layers(model, input_size), cfg.depth)
 
-    out = Path(ARCH_DIR)
+    # the layer tables go to architecture/layer_tables/ (the internship's 256 px
+    # ones are in architecture/internship_png/); the drawing joins the others in
+    # architecture/nifti/
+    out = Path(ARCH_DIR) / "layer_tables"
     out.mkdir(parents=True, exist_ok=True)
     total = print_table(records, cfg, input_size, out / f"architecture_{cfg.arch}.txt")
     write_html(records, cfg, input_size, out / f"architecture_{cfg.arch}.html")
@@ -619,7 +622,8 @@ def main():
              bilinear=cfg.bilinear, arch=cfg.arch)
     assert P["total"] == model.count_parameters(), \
         f"diagram plan {P['total']:,} != model {model.count_parameters():,}"
-    draw(P, out / f"{cfg.arch}_diagram.png")
+    (Path(ARCH_DIR) / "nifti").mkdir(parents=True, exist_ok=True)
+    draw(P, Path(ARCH_DIR) / "nifti" / f"{cfg.arch}.png")
 
     assert total == model.count_parameters(), \
         f"hook total {total} != model total {model.count_parameters()}"

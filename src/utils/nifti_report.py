@@ -6,7 +6,7 @@ exists.
 
     python -m src.utils.nifti_report
 
-WRITES into results/nifti/
+WRITES into results/nifti/dataset/
 
     dataset_report.txt     the numbers, with what they imply
     dataset_stats.json     per volume, for anything else to read
@@ -318,7 +318,7 @@ def main():
         raise SystemExit("no slice cache yet - build it first:  python -m src.nifti")
     cfg = Config(image_size=RESOLUTIONS[a.resolution] if a.resolution else sizes[0])
     s, hist, vols = collect(cfg.nifti_cache_dir, cfg)
-    out = results_dir("nifti")
+    out = results_dir("nifti", "dataset")
     write_text(s, cfg.nifti_cache_dir, out / "dataset_report.txt")
     (out / "dataset_stats.json").write_text(json.dumps(s, indent=1))
     print(f"[saved] {out / 'dataset_stats.json'}")

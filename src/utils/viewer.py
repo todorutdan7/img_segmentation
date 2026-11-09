@@ -760,7 +760,7 @@ def from_export(tag, fg_only=True):
          fg_only - drop slices with no liver in the ground truth
 
     OUT  (ct, gt, pr, z_scale, folder)   folder is where the export was found,
-         results/nifti/ first, then results/internship_png/
+         results/nifti/viewer/ first, then results/nifti/, results/internship_png/
 
     USE CASE
     --from-export. Skips the model and the dataset entirely, so it starts in a
@@ -769,7 +769,7 @@ def from_export(tag, fg_only=True):
     """
     import nibabel as nib
     from src.config import FORMAT_DIRS, RESULTS_DIR
-    folders = [RESULTS_DIR / FORMAT_DIRS[f] for f in ("nifti", "png")]
+    folders = [RESULTS_DIR / "nifti" / "viewer"] + [RESULTS_DIR / FORMAT_DIRS[f] for f in ("nifti", "png")]
     results = next((d for d in folders if (d / f"view3d_{tag}_ct.nii.gz").exists()), None)
     if results is None:
         raise SystemExit(f"no view3d_{tag}_*.nii.gz in {' or '.join(map(str, folders))}\n"
@@ -839,7 +839,7 @@ def load_from_model(a):
         ct, gt, pr, _ = build_volume_nifti(model, cfg, entry, cache_dir, device, a.all_slices)
         z = a.z_scale or nifti_z_scale(entry, ct.shape[1])
         return (ct, gt, pr, z, key.replace("-", ""),
-                f"{key}  -  {cfg.arch}  -  nifti  -  {len(ct)} slices", results_dir("nifti"))
+                f"{key}  -  {cfg.arch}  -  nifti  -  {len(ct)} slices", results_dir("nifti", "viewer"))
 
     pairs, _, _ = find_pairs(cfg.root_data_dir)
     _, by = patient_pairs(pairs)
@@ -907,7 +907,7 @@ def load_scan_only(a):
     name = img_path.name.replace(".nii.gz", "")
     title = (f"{name}  -  {nx}x{ny} x {nz} slices  -  {sx:.2f} x {sy:.2f} x {sz:.2f} mm"
              f"  -  ground truth, no model")
-    return ct, gt, None, sz / sx, name.replace("_", ""), title, results_dir("nifti")
+    return ct, gt, None, sz / sx, name.replace("_", ""), title, results_dir("nifti", "viewer")
 
 
 def main():

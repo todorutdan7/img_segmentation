@@ -22,10 +22,14 @@ runs/                    trained models, one folder per run
   nifti/                   new models
   internship_png/          ablation_2070/, ablation_laptop/
 results/                 reports and figures
-  nifti/                   dataset report, old models on NIfTI, viewer figures
+  nifti/                   README.md = overview of every run (tables + figures);
+                           summary/ comparisons/ kfold/ gradcam/ dataset/ viewer/
+                           cases/ baseline/
   internship_png/          internship results, 3D Slicer files in slicer/
 report/internship/       internship notebook and technical report (LaTeX + PDF)
-architecture/            diagrams of the two models
+architecture/            model drawings (PNG)
+  nifti/                   the five models at 512: unet, attention_unet, *_r50
+  internship_png/          the internship's two models at 256, with layer tables
 ```
 
 ## The data
@@ -50,7 +54,7 @@ tar -xf data/Task03_Liver.tar -C data         # MD5 a90ec6c4aa7f6a3d087205e23d4e
 ```
 
 The full study (spacing, HU per class, lesion sizes, split) is in
-`results/nifti/dataset_report.txt`. In short: slices are 0.7-5 mm thick, liver
+`results/nifti/dataset/dataset_report.txt`. In short: slices are 0.7-5 mm thick, liver
 is 2.2% of voxels and tumour 0.12%, and two thirds of the 1,037 lesions are
 smaller than 1 mL.
 
@@ -75,17 +79,20 @@ Run everything from the project root with `python -m`, in the `seg` conda env.
 python -m src.utils.viewer --scan 16                  # look at a scan + its labels, no model
 
 python -m src.nifti                                   # build the 512 slice cache, once
-python -m src.utils.nifti_report                      # dataset report -> results/nifti/
+python -m src.utils.nifti_report                      # dataset report -> results/nifti/dataset/
 python -m src.utils.selftest unet                     # 9 checks before training
 
 python -m src.train --arch unet                       # 512 px -> runs/nifti/baseline/unet_<time>/
 python -m src.train --arch attention_unet
-python -m src.utils.compare --group nifti/baseline    # side-by-side table and figure
+python -m src.utils.compare --group nifti/baseline    # one group: table + figures -> results/nifti/comparisons/
 
 python -m src.utils.reeval --group nifti/baseline     # re-score, incl. Dice per patient
 python -m src.utils.viewer --volume 16                # a trained model on one patient, 2D + 3D
 python -m src.utils.view3d --volume 16 --nifti        # figures + .nii.gz for 3D Slicer
 python -m src.utils.gradcam --run runs/nifti/r50/<run>  # where the model looks for tumour
+python -m src.utils.results                          # every run -> results/nifti/README.md
+python -m src.utils.diagram --arch both              # drawings -> architecture/nifti/
+python -m src.utils.diagram_r50                      # the ResNet-50 ones
 ```
 
 The data format defaults to NIfTI. `--group` picks the folder under `runs/`;
@@ -151,7 +158,8 @@ python -m src.train --arch unetpp_r50 --in-slices 3 --group r50 --batch-size 4 -
 
 **Adding a model.** Add the class to `ARCHES` in `src/model.py` and its name to
 `ARCH_NAMES` in `src/config.py`. The self-test's parameter check compares
-against `src/utils/diagram.py`, which only knows the two from-scratch U-Nets.
+against `src/utils/diagram.py`, which only knows the two from-scratch U-Nets;
+the ResNet-50 drawings (`src/utils/diagram_r50.py`) count from the model itself.
 
 ## Scores
 
@@ -184,7 +192,7 @@ python -m src.utils.kfold --group nifti/kfold         # per fold, over all patie
 
 `kfold` groups the runs by model, gives the score over all 131 patients and
 between folds, and compares two models patient by patient (mean difference and
-its standard error), writing `results/nifti/kfold_<group>.txt`.
+its standard error), writing `results/nifti/kfold/<group>.txt`.
 
 **Grad-CAM.** `gradcam` explains the tumour class (Seg-Grad-CAM): for the slice
 with the most tumour of each test patient of the run (its own fold for a k-fold
@@ -192,8 +200,16 @@ run), the gradient of the tumour score over the predicted tumour, or over the
 true one when none was predicted, weights one layer's feature maps into a heat
 map. Three depths by default (deep encoder, bottleneck, decoder at 1/8);
 `--layers` picks others. It writes a figure and a table with the share of the
-heat on the tumour and the liver against their share of the slice. `--cpu`
-leaves the GPU to a training run.
+heat on the tumour and the liver against their share of the slice, in
+`results/nifti/gradcam/`. `--cpu` leaves the GPU to a training run.
+
+**Overview.** `python -m src.utils.results` reads every run and writes
+`results/nifti/README.md`: the fixed-split table (with a paired test against
+the best run), the k-fold tables (per fold, paired, by tumour size), the
+Grad-CAM table and the models, plus the figures in `summary/` and the numbers
+as csv. In every figure blue is a ResNet-50 encoder and orange a model trained
+from scratch; filled = test, hollow = validation. `compare` draws the same
+figures for one group (`comparisons/<group>.png`, `_curves.png`, `_loss.png`).
 
 ## Future work
 
@@ -227,7 +243,7 @@ same way they score as on the PNGs (fg Dice 0.824 / 0.824), on HU input about 0,
 so NIfTI models are trained from scratch:
 
 ```bash
-python -m src.utils.old_models_on_nifti     # -> results/nifti/old_models_on_nifti.txt
+python -m src.utils.old_models_on_nifti     # -> results/nifti/baseline/old_models_on_nifti.txt
 ```
 
 To use the internship tools on them, pass the group and `--png` where needed.
