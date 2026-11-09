@@ -1,0 +1,34 @@
+GRAD-CAM  unet_fold4_1794174496  (tumour class, Seg-Grad-CAM)
+Share of the heat on the true tumour / liver, against the share of the slice they cover.
+A model looking in the right place gives far more heat than area. 'missed' = no tumour
+predicted on that slice, so the map explains the true tumour region instead.
+
+heat on the tumour, per layer:
+patient      slice  tumour area         encoder level 3              bottleneck                 decoder
+volume-62      114         0.2%                      0%                      0%                      0%
+volume-30      140         0.5%                      1%                      3%                      1%
+volume-53       64         0.2%                      1%                      0%                      0%
+volume-7       373         0.4%                      5%                      7%                      4%
+volume-73       98         0.1%                      0%                      0%                      0%   missed
+volume-79      116         0.3%                      1%                      2%                      0%
+volume-96      607         0.3%                      4%                      7%                      1%
+volume-31       62         0.2%                      0%                      0%                      0%
+volume-60      194         0.4%                      2%                      1%                      2%
+volume-118     251         4.1%                      9%                     47%                     25%
+volume-17      404         0.4%                      5%                     10%                      2%
+volume-107     380         0.1%                      0%                      0%                      0%
+volume-102     504         0.6%                      5%                      8%                      7%
+volume-109     450         0.6%                      0%                      0%                      0%
+volume-82      400         1.8%                      4%                     39%                     14%
+volume-74       79         2.1%                      2%                      3%                      3%   missed
+volume-56      195         3.3%                      6%                     53%                     20%
+volume-50      136         0.2%                      2%                      0%                      0%
+volume-100     584         4.2%                     13%                     69%                     66%
+volume-43       59         0.3%                      1%                      5%                      2%
+volume-66       78         0.3%                      1%                      4%                      0%
+volume-103     529         0.8%                      1%                      0%                      0%   missed
+-------------------------------------------------------------------------------------------------------
+mean, tumour               1.0%                      3%                     12%                      7%
+mean, liver               10.1%                     11%                     39%                      9%
+
+22 test patients with tumour, 3 missed; 4 without tumour skipped: volume-91, volume-41, volume-105, volume-32

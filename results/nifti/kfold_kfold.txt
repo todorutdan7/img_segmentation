@@ -1,5 +1,15 @@
 K-FOLD SUMMARY  (Dice per patient after the 3D clean-up)
 ====================================================================================================
+unet  1 slice(s)  lr 0.001  batch 8
+  fold  patients  best@   tum/pt   median   pooled  liver/pt   run
+     0        27     27    0.335    0.270    0.543     0.919   unet_fold0_1794061020
+     1        26     34    0.479    0.541    0.562     0.938   unet_fold1_1794083957
+     2        26     27    0.321    0.179    0.413     0.917   unet_fold2_1794107518
+     3        26     38    0.608    0.668    0.741     0.925   unet_fold3_1794146819
+     4        26     34    0.492    0.555    0.556     0.900   unet_fold4_1794174496
+  all 131 patients: tumour/pt mean 0.446  median 0.511   liver/pt mean 0.920
+  between folds: tumour/pt 0.447 +- 0.107 (min 0.321, max 0.608)
+
 unet_r50  3 slice(s)  lr 0.0001  batch 8
   fold  patients  best@   tum/pt   median   pooled  liver/pt   run
      0        27     30    0.430    0.436    0.606     0.938   unet_r50_fold0_1793875957
@@ -9,3 +19,9 @@ unet_r50  3 slice(s)  lr 0.0001  batch 8
      4        26     23    0.451    0.524    0.817     0.901   unet_r50_fold4_1793981956
   all 131 patients: tumour/pt mean 0.512  median 0.609   liver/pt mean 0.938
   between folds: tumour/pt 0.512 +- 0.065 (min 0.430, max 0.599)
+
+PATIENT BY PATIENT (tumour Dice per patient, only patients both models tested)
+  unet  1 slice(s)  lr 0.001  batch 8
+  minus unet_r50  3 slice(s)  lr 0.0001  batch 8
+    131 patients: mean difference -0.065 (+- 0.021 std error)   better on 31, worse on 77, same on 23
+    a difference smaller than about 2 std errors (0.043) is not a real one
