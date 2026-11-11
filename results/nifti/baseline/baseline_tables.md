@@ -1,7 +1,7 @@
 # NIfTI 512 baseline: U-Net and Attention U-Net
 
 Trained on MSD Task03_Liver at 512x512 in Hounsfield units, RTX 2070, Oct 26-27 2026.
-Runs: `runs/nifti/baseline/attention_unet_1793072064`, `runs/nifti/baseline/unet_1793049813`.
+Runs: `runs/nifti/baseline/attention_unet_2d_old-epoch-rule`, `runs/nifti/baseline/unet_2d_old-epoch-rule`.
 
 ## Training setup
 

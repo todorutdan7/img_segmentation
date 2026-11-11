@@ -82,7 +82,7 @@ python -m src.nifti                                   # build the 512 slice cach
 python -m src.utils.nifti_report                      # dataset report -> results/nifti/dataset/
 python -m src.utils.selftest unet                     # 9 checks before training
 
-python -m src.train --arch unet                       # 512 px -> runs/nifti/baseline/unet_<time>/
+python -m src.train --arch unet                       # 512 px -> runs/nifti/baseline/unet_2d/
 python -m src.train --arch attention_unet
 python -m src.utils.compare --group nifti/baseline    # one group: table + figures -> results/nifti/comparisons/
 
@@ -97,6 +97,13 @@ python -m src.utils.diagram_r50                      # the ResNet-50 ones
 
 The data format defaults to NIfTI. `--group` picks the folder under `runs/`;
 `train` saves into `runs/nifti/<group>/` (default group `baseline`).
+
+A run folder is named after what sets it apart: the model, `2d` or `2.5d`,
+then only the settings that differ from the defaults (lr 1e-3, batch 8, 512 px,
+40 epochs), e.g. `unet_r50_2.5d_lr1e-4_fold0` or
+`unetpp_r50_2.5d_lr1e-4_batch4x2`. A repeat gets `_2`. `--run-name` overrides
+it. The old timestamp names (`unet_r50_1793825576`) were renamed by
+`python -m src.utils.rename_runs --apply`; the list is in `runs/renamed.json`.
 
 **Resolution.** Training defaults to the full 512x512. `--resolution
 full|half|quarter|eighth` (512/256/128/64 px) on `train` and `src.nifti`; on a

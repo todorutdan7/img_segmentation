@@ -1,7 +1,7 @@
 """Grad-CAM for segmentation: which parts of the slice made the model say "tumour"?
 
-    python -m src.utils.gradcam --run runs/nifti/r50/unet_r50_1793825576
-    python -m src.utils.gradcam --run runs/nifti/kfold/unet_r50_fold0_1793852011 --cpu
+    python -m src.utils.gradcam --run runs/nifti/r50/unet_r50_2.5d_lr1e-4
+    python -m src.utils.gradcam --run runs/nifti/kfold/unet_r50_2.5d_lr1e-4_fold0 --cpu
 
 Seg-Grad-CAM (Vinogradova et al., 2020). For one slice, the score explained is
 the sum of the tumour logits over the pixels the model predicted as tumour, or

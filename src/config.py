@@ -25,6 +25,48 @@ def results_dir(data_format, sub=None) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d
 
+def readable_run_name(c: dict) -> str:
+    """a run folder's name, built from what sets the run apart:
+    unet_2d, unet_r50_2.5d_lr1e-4_fold0, unetpp_r50_2.5d_lr1e-4_batch4x2 ...
+    Only settings that differ from the defaults are spelled out. `c` is a
+    Config as a dict, or the "config" saved in a run's history.json."""
+    nifti = c.get("data_format", "png") == "nifti"
+    n = c.get("in_slices", 1)
+    parts = [c["arch"], {1: "2d", 3: "2.5d"}.get(n, f"{n}slices")]
+    if c["arch"].endswith("_r50") and c.get("encoder_weights", "imagenet") == "none":
+        parts.append("random-init")
+    if not c["arch"].endswith("_r50"):
+        if c.get("base_filters", 32) != 32:
+            parts.append(f"f{c['base_filters']}")
+        if c.get("depth", 4) != 4:
+            parts.append(f"depth{c['depth']}")
+    if c.get("image_size", 512 if nifti else 256) != (512 if nifti else 256):
+        parts.append(f"{c['image_size']}px")
+    if c.get("liver_only"):
+        parts.append("liver-only")
+    if c.get("lr", 1e-3) != 1e-3:
+        parts.append("lr" + f"{c['lr']:.0e}".replace("e-0", "e-"))
+    b, k = c.get("batch_size", 8), c.get("accum_steps", 1)
+    if (b, k) != (8, 1):
+        parts.append(f"batch{b}x{k}" if k > 1 else f"batch{b}")
+    if c.get("loss", "dice_ce") != "dice_ce":
+        parts.append(f"loss-{c['loss']}")
+    if c.get("class_weights", "none") != "none":
+        parts.append(f"weights-{c['class_weights']}")
+    if not c.get("augment", True):
+        parts.append("no-aug")
+    if c.get("epochs", 40) != 40:
+        parts.append(f"{c['epochs']}ep")
+    # the first NIfTI runs picked their best epoch by foreground Dice
+    if nifti and c.get("select_metric", "dice_fg") != "tumor_case":
+        parts.append("old-epoch-rule")
+    if c.get("seed", 42) != 42:
+        parts.append(f"seed{c['seed']}")
+    if c.get("folds"):
+        parts.append(f"fold{c['fold']}")
+    return "_".join(parts)
+
+
 CLASS_NAMES = ["background", "liver", "tumor"]
 MASK_VALUES = [0, 127, 255]
 IN_CHANNELS = 1

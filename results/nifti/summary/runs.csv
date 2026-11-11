@@ -1,23 +1,23 @@
 group,run,model,arch,in_slices,encoder,lr,batch,params,hours,epochs,best_epoch,select_metric,folds,fold,val_tumour_pt,tumour_pt,tumour_median,tumour_pooled,tumour_precision,tumour_recall,liver_pt,liver_pooled,note
-ablation,attention_unet_1793776261,Attention U-Net 2D,attention_unet,1,scratch,0.001,8x1,7894783,7.39,40,39,tumor_case,0,,0.5434,0.445,0.5293,0.762,0.8135,0.7167,0.93,0.9334,
-ablation,unet_1793730619,U-Net 2.5D,unet,3,scratch,0.001,8x1,7763107,6.35,40,38,tumor_case,0,,0.6367,0.376,0.3256,0.7451,0.8017,0.696,0.9202,0.9312,
-ablation,unet_1793753663,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.23,40,40,tumor_case,0,,0.5529,0.4235,0.4355,0.7621,0.8214,0.7108,0.9333,0.941,
-ablation,unet_r50_1793708014,U-Net R50 2D,unet_r50,1,resnet50_imagenet,0.001,8x1,32514739,6.23,40,39,tumor_case,0,,0.5381,0.4484,0.4794,0.7625,0.8476,0.693,0.933,0.9337,
-baseline,attention_unet_1793072064,"Attention U-Net 2D, old epoch rule",attention_unet,1,scratch,0.001,8x1,7894783,7.34,40,23,fg_dice,0,,,,,0.7152,0.7135,0.7168,,0.9164,best epoch picked by foreground Dice; retrained with the tumour rule
-baseline,unet_1793049813,"U-Net 2D, old epoch rule",unet,1,scratch,0.001,8x1,7762531,6.15,40,18,fg_dice,0,,,,,0.6866,0.6459,0.7329,,0.9129,best epoch picked by foreground Dice; retrained with the tumour rule
-kfold,unet_fold0_1794061020,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.26,40,27,tumor_case,5,0,0.4672,0.335,0.2702,0.5435,0.6805,0.4524,0.9187,0.9152,
-kfold,unet_fold1_1794083957,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.44,40,34,tumor_case,5,1,0.4842,0.4791,0.5406,0.5615,0.7384,0.453,0.9385,0.9387,
-kfold,unet_fold2_1794107518,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.65,40,27,tumor_case,5,2,0.4827,0.3206,0.1794,0.4133,0.2864,0.742,0.9175,0.9251,
-kfold,unet_fold3_1794146819,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.15,40,38,tumor_case,5,3,0.4173,0.6084,0.6679,0.7408,0.8687,0.6458,0.9246,0.9269,
-kfold,unet_fold4_1794174496,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.47,40,34,tumor_case,5,4,0.4435,0.4922,0.5547,0.5564,0.4433,0.7472,0.9001,0.9156,
-kfold,unet_r50_fold0_1793875957,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,7.01,40,30,tumor_case,5,0,0.5777,0.4297,0.436,0.6061,0.7975,0.4888,0.9384,0.9327,
-kfold,unet_r50_fold1_1793901583,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,7.41,40,29,tumor_case,5,1,0.5915,0.5673,0.6238,0.6614,0.7683,0.5806,0.953,0.956,
-kfold,unet_r50_fold2_1793928648,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,7.52,40,24,tumor_case,5,2,0.5622,0.5144,0.6351,0.7793,0.7388,0.8244,0.9491,0.933,
-kfold,unet_r50_fold3_1793956099,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,7.05,40,27,tumor_case,5,3,0.5513,0.5989,0.6563,0.7297,0.8947,0.6161,0.9464,0.9472,
-kfold,unet_r50_fold4_1793981956,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,7.3,40,23,tumor_case,5,4,0.5874,0.451,0.5242,0.8169,0.9181,0.7357,0.9013,0.9303,
-r50,attention_unet_r50_1793408516,Attention U-Net R50 2.5D,attention_unet_r50,3,resnet50_imagenet,0.001,8x1,34350239,7.14,40,38,tumor_case,0,,0.6052,0.4346,0.5348,0.728,0.8238,0.6522,0.9389,0.9435,
-r50,unet_r50_1793385749,U-Net R50 2.5D,unet_r50,3,resnet50_imagenet,0.001,8x1,32521011,6.27,40,34,tumor_case,0,,0.6434,0.4695,0.5567,0.7589,0.8626,0.6774,0.9476,0.9487,
-r50,unet_r50_1793825576,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,8.06,40,4,tumor_case,0,,0.6645,0.5038,0.58,0.7532,0.8933,0.6511,0.9465,0.9479,
-r50,unetpp_r50_1793452505,"U-Net++ R50 2.5D, batch 4",unetpp_r50,3,resnet50_imagenet,0.001,4x1,48985651,21.8,40,28,tumor_case,0,,0.566,0.3332,0.3422,0.7058,0.84,0.6085,0.9282,0.9353,lr 1e-3 too high: tumour Dice collapsed to 0 in several epochs
-r50,unetpp_r50_1793539589,"U-Net++ R50 2.5D, batch 4x2",unetpp_r50,3,resnet50_imagenet,0.001,4x2,48985651,21.83,40,39,tumor_case,0,,0.6109,0.3431,0.3072,0.7042,0.8321,0.6104,0.9292,0.9377,lr 1e-3 with batch 4x2: still collapsed; lr 1e-4 fixed it
-r50,unetpp_r50_1793628515,"U-Net++ R50 2.5D, lr 1e-4, batch 4x2",unetpp_r50,3,resnet50_imagenet,0.0001,4x2,48985651,21.89,40,28,tumor_case,0,,0.716,0.415,0.4167,0.7545,0.8396,0.685,0.9432,0.9519,
+ablation,attention_unet_2d,Attention U-Net 2D,attention_unet,1,scratch,0.001,8x1,7894783,7.39,40,39,tumor_case,0,,0.5434,0.445,0.5293,0.762,0.8135,0.7167,0.93,0.9334,
+ablation,unet_2.5d,U-Net 2.5D,unet,3,scratch,0.001,8x1,7763107,6.35,40,38,tumor_case,0,,0.6367,0.376,0.3256,0.7451,0.8017,0.696,0.9202,0.9312,
+ablation,unet_2d,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.23,40,40,tumor_case,0,,0.5529,0.4235,0.4355,0.7621,0.8214,0.7108,0.9333,0.941,
+ablation,unet_r50_2d,U-Net R50 2D,unet_r50,1,resnet50_imagenet,0.001,8x1,32514739,6.23,40,39,tumor_case,0,,0.5381,0.4484,0.4794,0.7625,0.8476,0.693,0.933,0.9337,
+baseline,attention_unet_2d_old-epoch-rule,"Attention U-Net 2D, old epoch rule",attention_unet,1,scratch,0.001,8x1,7894783,7.34,40,23,fg_dice,0,,,,,0.7152,0.7135,0.7168,,0.9164,best epoch picked by foreground Dice; retrained with the tumour rule
+baseline,unet_2d_old-epoch-rule,"U-Net 2D, old epoch rule",unet,1,scratch,0.001,8x1,7762531,6.15,40,18,fg_dice,0,,,,,0.6866,0.6459,0.7329,,0.9129,best epoch picked by foreground Dice; retrained with the tumour rule
+kfold,unet_2d_fold0,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.26,40,27,tumor_case,5,0,0.4672,0.335,0.2702,0.5435,0.6805,0.4524,0.9187,0.9152,
+kfold,unet_2d_fold1,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.44,40,34,tumor_case,5,1,0.4842,0.4791,0.5406,0.5615,0.7384,0.453,0.9385,0.9387,
+kfold,unet_2d_fold2,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.65,40,27,tumor_case,5,2,0.4827,0.3206,0.1794,0.4133,0.2864,0.742,0.9175,0.9251,
+kfold,unet_2d_fold3,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.15,40,38,tumor_case,5,3,0.4173,0.6084,0.6679,0.7408,0.8687,0.6458,0.9246,0.9269,
+kfold,unet_2d_fold4,U-Net 2D,unet,1,scratch,0.001,8x1,7762531,6.47,40,34,tumor_case,5,4,0.4435,0.4922,0.5547,0.5564,0.4433,0.7472,0.9001,0.9156,
+kfold,unet_r50_2.5d_lr1e-4_fold0,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,7.01,40,30,tumor_case,5,0,0.5777,0.4297,0.436,0.6061,0.7975,0.4888,0.9384,0.9327,
+kfold,unet_r50_2.5d_lr1e-4_fold1,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,7.41,40,29,tumor_case,5,1,0.5915,0.5673,0.6238,0.6614,0.7683,0.5806,0.953,0.956,
+kfold,unet_r50_2.5d_lr1e-4_fold2,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,7.52,40,24,tumor_case,5,2,0.5622,0.5144,0.6351,0.7793,0.7388,0.8244,0.9491,0.933,
+kfold,unet_r50_2.5d_lr1e-4_fold3,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,7.05,40,27,tumor_case,5,3,0.5513,0.5989,0.6563,0.7297,0.8947,0.6161,0.9464,0.9472,
+kfold,unet_r50_2.5d_lr1e-4_fold4,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,7.3,40,23,tumor_case,5,4,0.5874,0.451,0.5242,0.8169,0.9181,0.7357,0.9013,0.9303,
+r50,attention_unet_r50_2.5d,Attention U-Net R50 2.5D,attention_unet_r50,3,resnet50_imagenet,0.001,8x1,34350239,7.14,40,38,tumor_case,0,,0.6052,0.4346,0.5348,0.728,0.8238,0.6522,0.9389,0.9435,
+r50,unet_r50_2.5d,U-Net R50 2.5D,unet_r50,3,resnet50_imagenet,0.001,8x1,32521011,6.27,40,34,tumor_case,0,,0.6434,0.4695,0.5567,0.7589,0.8626,0.6774,0.9476,0.9487,
+r50,unet_r50_2.5d_lr1e-4,"U-Net R50 2.5D, lr 1e-4",unet_r50,3,resnet50_imagenet,0.0001,8x1,32521011,8.06,40,4,tumor_case,0,,0.6645,0.5038,0.58,0.7532,0.8933,0.6511,0.9465,0.9479,
+r50,unetpp_r50_2.5d_batch4,"U-Net++ R50 2.5D, batch 4",unetpp_r50,3,resnet50_imagenet,0.001,4x1,48985651,21.8,40,28,tumor_case,0,,0.566,0.3332,0.3422,0.7058,0.84,0.6085,0.9282,0.9353,lr 1e-3 too high: tumour Dice collapsed to 0 in several epochs
+r50,unetpp_r50_2.5d_batch4x2,"U-Net++ R50 2.5D, batch 4x2",unetpp_r50,3,resnet50_imagenet,0.001,4x2,48985651,21.83,40,39,tumor_case,0,,0.6109,0.3431,0.3072,0.7042,0.8321,0.6104,0.9292,0.9377,lr 1e-3 with batch 4x2: still collapsed; lr 1e-4 fixed it
+r50,unetpp_r50_2.5d_lr1e-4_batch4x2,"U-Net++ R50 2.5D, lr 1e-4, batch 4x2",unetpp_r50,3,resnet50_imagenet,0.0001,4x2,48985651,21.89,40,28,tumor_case,0,,0.716,0.415,0.4167,0.7545,0.8396,0.685,0.9432,0.9519,

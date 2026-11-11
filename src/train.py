@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from src.config import Config, ARCH_NAMES, RESOLUTIONS, get_device
+from src.config import Config, ARCH_NAMES, RESOLUTIONS, get_device, readable_run_name
 from src.data import get_dataloaders, slice_keys
 from src.model import build_model
 from src.losses import build_loss
@@ -338,7 +338,6 @@ def parse_args(argv=None):
         p.error(f"--fold must be 0..{a.folds - 1}")
     if a.folds and a.split_by_slice:
         p.error("--folds splits patients; it cannot be used with --split-by-slice")
-    fold = f"_fold{a.fold}" if a.folds else ""
     cfg = Config(
         data_dir=a.data_dir, data_format=a.data_format, nifti_dir=a.nifti_dir,
         hu_window=tuple(a.hu_window),
@@ -358,8 +357,15 @@ def parse_args(argv=None):
         weight_decay=a.weight_decay, scheduler=a.scheduler,
         select_metric=a.select_metric,
         early_stop_patience=a.early_stop_patience, amp=not a.no_amp, seed=a.seed,
-        run_name=a.run_name or f"{a.arch}{fold}_{int(time.time())}", group=a.group,
+        run_name=a.run_name or "run", group=a.group,
     )
+    if not a.run_name:
+        # named after what sets the run apart, e.g. unet_r50_2.5d_lr1e-4_fold0;
+        # a repeat with the same settings gets _2, _3 ...
+        name = readable_run_name(cfg.to_dict())
+        cfg.run_name, i = name, 2
+        while cfg.out_dir.exists():
+            cfg.run_name, i = f"{name}_{i}", i + 1
     return cfg
 
 

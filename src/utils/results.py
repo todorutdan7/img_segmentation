@@ -34,10 +34,10 @@ from src.utils import plotstyle as ps
 
 # runs kept out of the main table, with the reason (they stay in runs.csv)
 SUPERSEDED = {
-    "unet_1793049813": "best epoch picked by foreground Dice; retrained with the tumour rule",
-    "attention_unet_1793072064": "best epoch picked by foreground Dice; retrained with the tumour rule",
-    "unetpp_r50_1793452505": "lr 1e-3 too high: tumour Dice collapsed to 0 in several epochs",
-    "unetpp_r50_1793539589": "lr 1e-3 with batch 4x2: still collapsed; lr 1e-4 fixed it",
+    "unet_2d_old-epoch-rule": "best epoch picked by foreground Dice; retrained with the tumour rule",
+    "attention_unet_2d_old-epoch-rule": "best epoch picked by foreground Dice; retrained with the tumour rule",
+    "unetpp_r50_2.5d_batch4": "lr 1e-3 too high: tumour Dice collapsed to 0 in several epochs",
+    "unetpp_r50_2.5d_batch4x2": "lr 1e-3 with batch 4x2: still collapsed; lr 1e-4 fixed it",
 }
 SIZE_BINS = [("no tumour", 0, 0), ("< 10 mL", 0, 10), ("10-100 mL", 10, 100), (">= 100 mL", 100, 1e9)]
 NA = "-"
