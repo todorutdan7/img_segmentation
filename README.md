@@ -90,6 +90,7 @@ python -m src.utils.reeval --group nifti/baseline     # re-score, incl. Dice per
 python -m src.utils.viewer --volume 16                # a trained model on one patient, 2D + 3D
 python -m src.utils.view3d --volume 16 --nifti        # figures + .nii.gz for 3D Slicer
 python -m src.utils.gradcam --run runs/nifti/r50/<run>  # where the model looks for tumour
+python -m src.utils.case_figure 77 --compare 16       # one patient: slice, truth, tumour vs liver HU
 python -m src.utils.results                          # every run -> results/nifti/README.md
 python -m src.utils.diagram --arch both              # drawings -> architecture/nifti/
 python -m src.utils.diagram_r50                      # the ResNet-50 ones

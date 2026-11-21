@@ -568,7 +568,7 @@ FOLDERS = [
                  "`python -m src.utils.nifti_report`"),
     ("viewer/", "screenshots and exports of the 3D viewer - `python -m src.utils.viewer`, `view3d`"),
     ("attention/", "attention-gate maps of an Attention U-Net - `python -m src.utils.attention_viz`"),
-    ("cases/", "single patients looked at closely (e.g. the dark tumour of patient 104)"),
+    ("cases/", "single patients looked at closely: the dark tumour of patient 104, the faint one of patient 77 (`python -m src.utils.case_figure`)"),
     ("baseline/", "the first NIfTI baseline (Oct 2026) and the internship models run on the NIfTI "
                   "data - superseded, kept for the record"),
 ]
