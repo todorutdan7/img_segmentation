@@ -84,7 +84,7 @@ class Run:
         # one model = one configuration; its k-fold runs share this
         c = self.cfg
         return (c["arch"], c.get("in_slices", 1), c.get("lr", 1e-3),
-                c.get("batch_size", 8), c.get("accum_steps", 1))
+                c.get("batch_size", 8), c.get("accum_steps", 1), c.get("loss", "dice_ce"))
 
 
 def load_runs(runs_dir: Path):

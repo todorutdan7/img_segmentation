@@ -144,9 +144,11 @@ class Config:
     bilinear: bool = False            # upsample by interpolation instead of
                                       # transposed conv
 
-    loss: str = "dice_ce"                    # "dice_ce" | "dice" | "ce"
+    loss: str = "dice_ce"                    # "dice_ce" | "dice_ce_slice" | "dice" | "ce"
     # dice ce -> calculate  both dice and cross entropy and merge them
     # together to get best of both
+    # dice_ce_slice -> same blend, but Dice per slice on liver and tumour only
+    # (src/losses.py slice_dice_loss), so small tumours count as much as big ones
 
     dice_weight: float = 0.5                 # blend when loss="dice_ce"
     # 0.5 dice weights means 50% dice loss + 50% cross entropy loss

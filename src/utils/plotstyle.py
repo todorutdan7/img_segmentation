@@ -43,6 +43,10 @@ def run_label(cfg, select_metric="tumor_case"):
     b, k = cfg.get("batch_size", 8), cfg.get("accum_steps", 1)
     if (b, k) != (8, 1):
         extra.append(f"batch {b}x{k}" if k > 1 else f"batch {b}")
+    if cfg.get("loss", "dice_ce") == "dice_ce_slice":
+        extra.append("per-slice Dice loss")
+    elif cfg.get("loss", "dice_ce") != "dice_ce":
+        extra.append(f"loss {cfg['loss']}")
     if not select_metric:
         extra.append("old epoch rule")
     return s + (", " + ", ".join(extra) if extra else "")

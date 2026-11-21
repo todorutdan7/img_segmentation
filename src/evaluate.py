@@ -130,16 +130,32 @@ def case_summary(cms, class_names):
 
 def volume_scores(model, loader, device, class_names, keys, min_tumor_voxels=0):
     """case_summary of the raw prediction and of the 3D-cleaned one, from a
-    single pass of the model (see src/postprocess.py)"""
+    single pass of the model (see src/postprocess.py). For nifti data with a
+    tumour class, also the lesions found by size (see src/lesions.py)."""
     from src.postprocess import clean_volume
+    from src import lesions as L
     n = len(class_names)
-    raw, cleaned = {}, {}
+    ds = loader.dataset
+    # the voxel size in mL needs the scan's spacing, which only the nifti index has
+    vols = getattr(ds, "volumes", None)
+    tumour = class_names.index("tumor") if "tumor" in class_names else None
+    do_lesions = vols is not None and tumour is not None
+    raw, cleaned, les_raw, les_cln = {}, {}, {}, {}
     for k, gt, pr in predicted_volumes(model, loader, device, keys):
+        pc = clean_volume(pr, min_tumor_voxels)
         raw[k] = volume_confusion(gt, pr, n)
-        cleaned[k] = volume_confusion(gt, clean_volume(pr, min_tumor_voxels), n)
-    return {"raw": case_summary(raw, class_names),
-            "cleaned": case_summary(cleaned, class_names),
-            "min_tumor_voxels": min_tumor_voxels}
+        cleaned[k] = volume_confusion(gt, pc, n)
+        if do_lesions:
+            v = L.voxel_ml(vols[k], ds.image_size)
+            les_raw[k] = L.lesion_records(gt, pr, v, tumour)
+            les_cln[k] = L.lesion_records(gt, pc, v, tumour)
+    out = {"raw": case_summary(raw, class_names),
+           "cleaned": case_summary(cleaned, class_names),
+           "min_tumor_voxels": min_tumor_voxels}
+    if do_lesions:
+        out["raw"]["lesions"] = L.summarise(les_raw)
+        out["cleaned"]["lesions"] = L.summarise(les_cln)
+    return out
 
 
 def print_scores(scores, class_names):
@@ -154,6 +170,9 @@ def print_scores(scores, class_names):
               + "".join(f"{s['pooled'][c]:>9.4f}" for c in fg) + f"   {'':>12}"
               + "".join(f"{s['per_patient_mean'][c]:>13.4f}{s['per_patient_median'][c]:>8.4f}"
                         for c in fg))
+    if "lesions" in scores.get("cleaned", {}):
+        from src.lesions import print_lesions
+        print_lesions(scores["cleaned"]["lesions"], title="lesions (cleaned)")
 
 
 

@@ -41,6 +41,38 @@ def dice_loss(logits, target, num_classes, eps=1.0):
     return 1 - dice.mean()
 
 
+def slice_dice_loss(logits, target, num_classes, eps=1.0):
+    """Dice per slice, foreground classes only - for small tumours.
+
+    dice_loss above adds up the whole batch first, so one 50 cm2 tumour slice
+    outweighs every small one, and background (about 95% of the pixels, Dice
+    near 1) is a third of the score. Here each slice gets its own Dice for
+    liver and for tumour, so a 20-pixel tumour counts as much as a big one.
+
+    A class is scored only on the slices that contain it: on a slice with no
+    tumour any soft tumour probability would give Dice 0, and with ~63% of the
+    liver slices tumour-free that would teach the model to hold back on
+    tumour. Those slices are left to the cross-entropy term.
+    """
+    # float32 even under mixed precision: the sums over a 512x512 slice
+    probs = F.softmax(logits.float(), dim=1)[:, 1:]
+    true_1h = F.one_hot(target.long(), num_classes).permute(0, 3, 1, 2).float()[:, 1:]
+
+    dims = (2, 3)                       # sum over each slice, not over the batch
+    inter = (probs * true_1h).sum(dims)                 # (batch, fg classes)
+    card = probs.sum(dims) + true_1h.sum(dims)
+    dice = (2 * inter + eps) / (card + eps)
+
+    present = true_1h.sum(dims) > 0                     # does the slice hold this class?
+    n = present.sum(0)                                  # slices per class
+    if not n.any():
+        # a batch with no liver or tumour at all: nothing for Dice to say,
+        # but keep the graph so backward() still works
+        return logits.sum() * 0.0
+    per_class = ((1 - dice) * present).sum(0) / n.clamp(min=1)
+    return per_class[n > 0].mean()
+
+
 def compute_class_weights(mode, num_classes, pixel_counts=None, manual=None, device=None):
     # if none, CE will treat every pixel equally
     if mode == "none" or num_classes < 2:
@@ -77,6 +109,9 @@ class SegLoss(nn.Module):
         target = target.long()
         if self.kind == "ce":
             return self.ce(logits, target)
+        if self.kind == "dice_ce_slice":
+            d = slice_dice_loss(logits, target, self.num_classes)
+            return self.dice_weight * d + (1 - self.dice_weight) * self.ce(logits, target)
         d = dice_loss(logits, target, self.num_classes)
         if self.kind == "dice":
             return d

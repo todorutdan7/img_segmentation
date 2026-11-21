@@ -184,6 +184,28 @@ because tumour is 0.12% of pixels and liver about 2%, so accuracy is never used.
   back into 3D, only the largest connected liver piece is kept, and tumour
   outside it is removed. `reeval` and `train` report every score raw and
   cleaned; `reeval --min-tumor-voxels N` also drops tumour pieces under N voxels.
+- **Lesions found, by size** (`src/lesions.py`, NIfTI only). Every true lesion
+  (a 3D connected piece of tumour) counts on its own: *found* if any of it is
+  predicted tumour, *≥ 50% found* if at least half is. Lesions are grouped by
+  volume (< 0.1, 0.1-1, 1-10, ≥ 10 mL), and predicted tumour pieces touching no
+  true lesion are counted as false ones. The 20 test patients of the fixed split
+  hold 168 lesions, 114 of them under 1 mL, so this shows small-tumour changes
+  that tumour Dice per patient hides. `train` and `reeval` write it into
+  `metrics_test.json` (`scores.raw.lesions`, `scores.cleaned.lesions`);
+  `python -m src.lesions --group nifti/r50` compares runs, and pools the folds
+  of a k-fold model.
+
+**Loss.** `--loss dice_ce` (default) is 0.5 x Dice + 0.5 x cross-entropy, the
+Dice summed over the whole batch for background, liver and tumour together, so
+big tumours and background dominate it. `--loss dice_ce_slice` uses a Dice per
+slice on liver and tumour only, each class scored on the slices that contain
+it; slices without tumour are left to the cross-entropy. It aims at small
+tumours.
+
+```bash
+python -m src.train --arch unet_r50 --in-slices 3 --lr 1e-4 --group r50 --loss dice_ce_slice
+python -m src.lesions --group nifti/r50
+```
 
 **k-fold.** With about 20 patients in one test set, one patient can move the
 mean tumour Dice by 0.03, so small gaps between models are noise. `--folds 5
