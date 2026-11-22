@@ -35,6 +35,8 @@ def load_folds(group_dir: Path):
                  f"  batch {batch}")
         if c.get("loss", "dice_ce") != "dice_ce":
             label += f"  loss {c['loss']}"
+        if c.get("dice_weight", 0.5) != 0.5:
+            label += f"  dice weight {c['dice_weight']:g}"
         models.setdefault(label, {"folds": c["folds"], "runs": {}})
         models[label]["runs"][c["fold"]] = dict(name=d.name, best_epoch=H.get("best_epoch"),
                                                 scores=M["scores"])

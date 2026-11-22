@@ -47,6 +47,8 @@ def run_label(cfg, select_metric="tumor_case"):
         extra.append("per-slice Dice loss")
     elif cfg.get("loss", "dice_ce") != "dice_ce":
         extra.append(f"loss {cfg['loss']}")
+    if cfg.get("loss", "dice_ce") in ("dice_ce", "dice_ce_slice") and cfg.get("dice_weight", 0.5) != 0.5:
+        extra.append(f"Dice weight {cfg['dice_weight']:g}")
     if not select_metric:
         extra.append("old epoch rule")
     return s + (", " + ", ".join(extra) if extra else "")

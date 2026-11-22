@@ -51,6 +51,8 @@ def readable_run_name(c: dict) -> str:
         parts.append(f"batch{b}x{k}" if k > 1 else f"batch{b}")
     if c.get("loss", "dice_ce") != "dice_ce":
         parts.append(f"loss-{c['loss']}")
+    if c.get("loss", "dice_ce") in ("dice_ce", "dice_ce_slice") and c.get("dice_weight", 0.5) != 0.5:
+        parts.append(f"diceweight{c['dice_weight']:g}")
     if c.get("class_weights", "none") != "none":
         parts.append(f"weights-{c['class_weights']}")
     if not c.get("augment", True):
