@@ -437,7 +437,14 @@ def get_dataloaders(cfg: Config, verbose: bool = True):
         vols, vol_sets = None, None
 
     # augmentation on only for train set , validation and test are kept original
-    train_set, val_set, test_set = mk(tr, cfg.augment), mk(va, False), mk(te, False)
+    if getattr(cfg, "crop_liver", ""):
+        # stage 2 of the liver-crop cascade, see src/cascade.py
+        if cfg.data_format != "nifti":
+            raise ValueError("--crop-liver needs the nifti data")
+        from src.cascade import make_datasets
+        train_set, val_set, test_set = make_datasets(cfg, tr, va, te, cache_dir, index, verbose)
+    else:
+        train_set, val_set, test_set = mk(tr, cfg.augment), mk(va, False), mk(te, False)
 
     common = dict(num_workers=cfg.num_workers, pin_memory=torch.cuda.is_available(), persistent_workers=cfg.num_workers > 0)
 

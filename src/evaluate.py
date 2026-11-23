@@ -13,15 +13,25 @@ from matplotlib.colors import ListedColormap
 OVERLAY_COLORS = [(0, 0, 0, 0), (0.20, 0.55, 0.95, 0.55), (0.95, 0.25, 0.20, 0.75)]
 
 
+def predict_batch(model, x, y, dataset, i0, device):
+    """the model's labels for one batch, and the truth to score them against.
+    A liver-crop dataset (src/cascade.py) maps both back to the full slice, so
+    its scores compare with every other run; otherwise they are as loaded."""
+    logits = model(x.to(device, non_blocking=True))
+    if hasattr(dataset, "full_batch"):
+        return dataset.full_batch(logits, i0)
+    return logits.argmax(1).cpu(), y
+
+
 @torch.no_grad()
 def accumulate_confusion(model, loader, device, num_classes):
 
     model.eval()
     cm = torch.zeros(num_classes, num_classes, dtype=torch.long)
+    i = 0
     for x, y in loader:
-        x = x.to(device, non_blocking=True)
-
-        pred = model(x).argmax(1).cpu()
+        pred, y = predict_batch(model, x, y, loader.dataset, i, device)
+        i += x.size(0)
         y = y.long()
 
         k = (y.view(-1) * num_classes + pred.view(-1))
@@ -75,7 +85,8 @@ def predicted_volumes(model, loader, device, keys):
     model.eval()
     cur, gts, prs, i = None, [], [], 0
     for x, y in loader:
-        pred = model(x.to(device, non_blocking=True)).argmax(1).cpu().numpy().astype(np.uint8)
+        pred, y = predict_batch(model, x, y, loader.dataset, i, device)
+        pred = pred.numpy().astype(np.uint8)
         y = y.numpy().astype(np.uint8)
         for b in range(len(pred)):
             if keys[i] != cur and cur is not None:

@@ -44,6 +44,10 @@ def readable_run_name(c: dict) -> str:
         parts.append(f"{c['image_size']}px")
     if c.get("liver_only"):
         parts.append("liver-only")
+    if c.get("crop_liver"):
+        parts.append("liver-crop")
+        if c.get("crop_margin", 0.1) != 0.1:
+            parts.append(f"margin{c['crop_margin']:g}")
     if c.get("lr", 1e-3) != 1e-3:
         parts.append("lr" + f"{c['lr']:.0e}".replace("e-0", "e-"))
     b, k = c.get("batch_size", 8), c.get("accum_steps", 1)
@@ -126,6 +130,11 @@ class Config:
     fold: int = 0                     # which fold this run tests, 0..folds-1
 
     arch: str = ARCH_NAME             # "attention_unet" | "unet" | "attention_unet_r50" | "unet_r50" | "unetpp_r50"
+
+    crop_liver: str = ""              # a trained run folder = stage 1: train on
+                                      # slices cropped to the liver and enlarged
+                                      # (src/cascade.py). "" = full slices
+    crop_margin: float = 0.1          # around the liver box, each side
 
     in_slices: int = 1                # slices given to the model as channels
                                       # 1 = 2D, the slice alone

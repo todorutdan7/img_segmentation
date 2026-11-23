@@ -33,6 +33,8 @@ def load_folds(group_dir: Path):
         batch = f"{b}x{k}" if k > 1 else str(b)
         label = (f"{c['arch']}  {c.get('in_slices', 1)} slice(s)  lr {c.get('lr', 1e-3):g}"
                  f"  batch {batch}")
+        if c.get("crop_liver"):
+            label += "  liver crop"
         if c.get("loss", "dice_ce") != "dice_ce":
             label += f"  loss {c['loss']}"
         if c.get("dice_weight", 0.5) != 0.5:

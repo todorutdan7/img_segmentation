@@ -43,6 +43,8 @@ def run_label(cfg, select_metric="tumor_case"):
     b, k = cfg.get("batch_size", 8), cfg.get("accum_steps", 1)
     if (b, k) != (8, 1):
         extra.append(f"batch {b}x{k}" if k > 1 else f"batch {b}")
+    if cfg.get("crop_liver"):
+        extra.append("liver crop")
     loss = cfg.get("loss", "dice_ce")
     if loss == "dice_ce_slice":
         extra.append("per-slice Dice loss")

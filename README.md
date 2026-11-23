@@ -164,6 +164,22 @@ python -m src.train --arch attention_unet_r50 --in-slices 3 --group r50
 python -m src.train --arch unetpp_r50 --in-slices 3 --group r50 --batch-size 4 --accum-steps 2
 ```
 
+**Two stages: liver crop** (`src/cascade.py`). Stage 1 is a trained run; its
+predicted liver gives each test patient a square box (+10% margin,
+`--crop-margin`). Stage 2 sees every slice cropped to that box and enlarged to
+the training size: the liver's box is usually ~288 of 512 px wide, so lesions
+appear ~1.8x larger per side. Stage 2 trains and validates on boxes around the
+true liver (shifted and resized a little at random while training) and is
+tested on stage 1's boxes. Its output is shrunk back and pasted into the full
+slice before scoring, so its scores compare directly with every other run.
+Stage 1 must have the same split and fold. The first stage-2 run writes
+`<stage 1>/liver_boxes_test.json` and prints how much true liver and tumour
+falls inside the boxes (`python -m src.cascade --stage1 <run>` does only that).
+
+```bash
+python -m src.train --arch unet_r50 --in-slices 3 --lr 1e-4 --group r50 --crop-liver runs/nifti/r50/unet_r50_2.5d_lr1e-4
+```
+
 **Adding a model.** Add the class to `ARCHES` in `src/model.py` and its name to
 `ARCH_NAMES` in `src/config.py`. The self-test's parameter check compares
 against `src/utils/diagram.py`, which only knows the two from-scratch U-Nets;

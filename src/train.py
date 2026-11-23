@@ -4,6 +4,7 @@ import gc
 import json
 import random
 import time
+from pathlib import Path
 
 import matplotlib
 
@@ -127,6 +128,11 @@ def train(cfg: Config, verbose=True):
     out_dir = cfg.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    if cfg.crop_liver:
+        # stage 2 of the cascade: stage 1's liver boxes for the test patients
+        from src.cascade import BOX_FILE, stage1_boxes
+        if not (Path(cfg.crop_liver) / BOX_FILE).exists():
+            stage1_boxes(cfg.crop_liver, device, cfg.crop_margin, verbose)
     train_loader, val_loader, test_loader, pixel_counts = get_dataloaders(cfg, verbose=verbose)
 
     model = build_model(cfg).to(device)
@@ -269,6 +275,12 @@ def parse_args(argv=None):
                         "two neighbours as channels (nifti only)")
     p.add_argument("--encoder-weights", choices=["imagenet", "none"], default=d.encoder_weights,
                    help="*_r50 only: start the ResNet-50 from ImageNet (default) or random")
+    p.add_argument("--crop-liver", default=d.crop_liver, metavar="STAGE1_RUN",
+                   help="two stages: train on slices cropped to the liver and enlarged; the "
+                        "test boxes come from this trained run's predicted liver "
+                        "(src/cascade.py). Same split and fold as that run")
+    p.add_argument("--crop-margin", type=float, default=d.crop_margin,
+                   help="--crop-liver: margin around the liver box on each side (0.1 = 10%%)")
 
     p.add_argument("--data-format", choices=["nifti", "png"], default=d.data_format,
                    help="nifti = MSD Task03_Liver (default), png = the internship's export")
@@ -355,6 +367,7 @@ def parse_args(argv=None):
         skip_empty=not a.keep_empty, max_samples=a.max_samples,
         split_by_volume=not a.split_by_slice, folds=a.folds, fold=a.fold,
         arch=a.arch, in_slices=a.in_slices, encoder_weights=a.encoder_weights,
+        crop_liver=a.crop_liver, crop_margin=a.crop_margin,
         base_filters=a.base_filters, depth=a.depth, dropout=a.dropout,
         batch_norm=not a.no_batch_norm, bilinear=a.bilinear,
         loss=a.loss, dice_weight=a.dice_weight, class_weights=a.class_weights,
