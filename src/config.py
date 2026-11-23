@@ -51,7 +51,8 @@ def readable_run_name(c: dict) -> str:
         parts.append(f"batch{b}x{k}" if k > 1 else f"batch{b}")
     if c.get("loss", "dice_ce") != "dice_ce":
         parts.append(f"loss-{c['loss']}")
-    if c.get("loss", "dice_ce") in ("dice_ce", "dice_ce_slice") and c.get("dice_weight", 0.5) != 0.5:
+    if (c.get("loss", "dice_ce") in ("dice_ce", "dice_ce_slice", "dice_ce_slice_batch")
+            and c.get("dice_weight", 0.5) != 0.5):
         parts.append(f"diceweight{c['dice_weight']:g}")
     if c.get("class_weights", "none") != "none":
         parts.append(f"weights-{c['class_weights']}")
@@ -146,11 +147,13 @@ class Config:
     bilinear: bool = False            # upsample by interpolation instead of
                                       # transposed conv
 
-    loss: str = "dice_ce"                    # "dice_ce" | "dice_ce_slice" | "dice" | "ce"
+    loss: str = "dice_ce"                    # "dice_ce" | "dice_ce_slice" | "dice_ce_slice_batch" | "dice" | "ce"
     # dice ce -> calculate  both dice and cross entropy and merge them
     # together to get best of both
     # dice_ce_slice -> same blend, but Dice per slice on liver and tumour only
     # (src/losses.py slice_dice_loss), so small tumours count as much as big ones
+    # dice_ce_slice_batch -> the per-slice Dice averaged with a batch Dice on
+    # liver and tumour, so false tumour on tumour-free slices costs more
 
     dice_weight: float = 0.5                 # blend when loss="dice_ce"
     # 0.5 dice weights means 50% dice loss + 50% cross entropy loss

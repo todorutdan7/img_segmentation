@@ -54,10 +54,36 @@ def slice_dice_loss(logits, target, num_classes, eps=1.0):
     liver slices tumour-free that would teach the model to hold back on
     tumour. Those slices are left to the cross-entropy term.
     """
+    return _slice_dice(*_fg_probs(logits, target, num_classes), eps)
+
+
+def slice_batch_dice_loss(logits, target, num_classes, eps=1.0):
+    """the per-slice Dice above, averaged with a Dice over the whole batch,
+    both on liver and tumour only - small tumours AND few false ones.
+
+    With the per-slice Dice alone the model found many more small lesions but
+    predicted 5x as many false tumour pieces: on the ~63% of slices without
+    tumour only the cross-entropy pushes back, and it averages over all
+    262,144 pixels of a slice, so a 50-pixel false blob costs it almost
+    nothing. In the batch Dice every predicted tumour pixel, on any slice,
+    counts against all the real tumour of the batch, as in the original loss
+    whose model had few false pieces. (Scoring tumour-free slices in the
+    per-slice Dice instead would not do it: there the score is already about
+    0 for a 20-pixel blob, so a 500-pixel one is barely punished more.)
+    """
+    probs, true_1h = _fg_probs(logits, target, num_classes)
+    return 0.5 * _slice_dice(probs, true_1h, eps) + 0.5 * _batch_dice(probs, true_1h, eps)
+
+
+def _fg_probs(logits, target, num_classes):
+    """softmax and one-hot truth of the foreground classes, (batch, fg, H, W)"""
     # float32 even under mixed precision: the sums over a 512x512 slice
     probs = F.softmax(logits.float(), dim=1)[:, 1:]
     true_1h = F.one_hot(target.long(), num_classes).permute(0, 3, 1, 2).float()[:, 1:]
+    return probs, true_1h
 
+
+def _slice_dice(probs, true_1h, eps):
     dims = (2, 3)                       # sum over each slice, not over the batch
     inter = (probs * true_1h).sum(dims)                 # (batch, fg classes)
     card = probs.sum(dims) + true_1h.sum(dims)
@@ -68,9 +94,16 @@ def slice_dice_loss(logits, target, num_classes, eps=1.0):
     if not n.any():
         # a batch with no liver or tumour at all: nothing for Dice to say,
         # but keep the graph so backward() still works
-        return logits.sum() * 0.0
+        return probs.sum() * 0.0
     per_class = ((1 - dice) * present).sum(0) / n.clamp(min=1)
     return per_class[n > 0].mean()
+
+
+def _batch_dice(probs, true_1h, eps):
+    dims = (0, 2, 3)                    # the whole batch at once, like dice_loss
+    inter = (probs * true_1h).sum(dims)
+    card = probs.sum(dims) + true_1h.sum(dims)
+    return 1 - ((2 * inter + eps) / (card + eps)).mean()
 
 
 def compute_class_weights(mode, num_classes, pixel_counts=None, manual=None, device=None):
@@ -109,8 +142,9 @@ class SegLoss(nn.Module):
         target = target.long()
         if self.kind == "ce":
             return self.ce(logits, target)
-        if self.kind == "dice_ce_slice":
-            d = slice_dice_loss(logits, target, self.num_classes)
+        if self.kind in ("dice_ce_slice", "dice_ce_slice_batch"):
+            f = slice_dice_loss if self.kind == "dice_ce_slice" else slice_batch_dice_loss
+            d = f(logits, target, self.num_classes)
             return self.dice_weight * d + (1 - self.dice_weight) * self.ce(logits, target)
         d = dice_loss(logits, target, self.num_classes)
         if self.kind == "dice":

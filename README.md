@@ -201,10 +201,16 @@ Dice summed over the whole batch for background, liver and tumour together, so
 big tumours and background dominate it. `--loss dice_ce_slice` uses a Dice per
 slice on liver and tumour only, each class scored on the slices that contain
 it; slices without tumour are left to the cross-entropy. It aims at small
-tumours.
+tumours. On the fixed split it found 146 of the 168 test lesions instead of
+125, but predicted 294 false tumour pieces instead of 57, so the tumour Dice
+per patient stayed about the same (0.489 vs 0.504); `--dice-weight 0.3` did
+not help. `--loss dice_ce_slice_batch` averages that per-slice Dice with a
+Dice over the whole batch on liver and tumour, where false tumour on any
+slice counts against the batch's real tumour, to keep the small lesions and
+lose the false ones.
 
 ```bash
-python -m src.train --arch unet_r50 --in-slices 3 --lr 1e-4 --group r50 --loss dice_ce_slice
+python -m src.train --arch unet_r50 --in-slices 3 --lr 1e-4 --group r50 --loss dice_ce_slice_batch
 python -m src.lesions --group nifti/r50
 ```
 

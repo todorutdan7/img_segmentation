@@ -312,10 +312,12 @@ def parse_args(argv=None):
     p.add_argument("--bilinear", action="store_true",
                    help="upsample by interpolation instead of transposed conv")
 
-    p.add_argument("--loss", choices=["dice_ce", "dice_ce_slice", "dice", "ce"], default=d.loss,
+    p.add_argument("--loss", choices=["dice_ce", "dice_ce_slice", "dice_ce_slice_batch", "dice", "ce"],
+                   default=d.loss,
                    help="dice_ce = Dice over the batch, background included, + CE (default); "
                         "dice_ce_slice = Dice per slice on liver and tumour only + CE, "
-                        "for small tumours")
+                        "for small tumours; dice_ce_slice_batch = the per-slice Dice averaged "
+                        "with a batch Dice on liver and tumour + CE, against false tumour")
     p.add_argument("--dice-weight", type=float, default=d.dice_weight)
     p.add_argument("--class-weights", choices=["none", "inverse", "manual"],
                    default=d.class_weights)
