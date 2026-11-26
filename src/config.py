@@ -90,7 +90,7 @@ ARCH_NAME = "attention_unet"
 # trained from scratch, the internship's two networks
 SCRATCH_ARCHS = ["attention_unet", "unet"]
 # the same two, and U-Net++, with an ImageNet-pretrained ResNet-50 as the encoder
-ARCH_NAMES = SCRATCH_ARCHS + ["attention_unet_r50", "unet_r50", "unetpp_r50"]
+ARCH_NAMES = SCRATCH_ARCHS + ["attention_unet_r50", "unet_r50", "unetpp_r50", "multiresunet"]
 
 @dataclass
 class Config:
@@ -129,7 +129,7 @@ class Config:
                                       # patient once. val stays val_fraction
     fold: int = 0                     # which fold this run tests, 0..folds-1
 
-    arch: str = ARCH_NAME             # "attention_unet" | "unet" | "attention_unet_r50" | "unet_r50" | "unetpp_r50"
+    arch: str = ARCH_NAME             # "attention_unet" | "unet" | "attention_unet_r50" | "unet_r50" | "unetpp_r50" | "multiresunet"
 
     crop_liver: str = ""              # a trained run folder = stage 1: train on
                                       # slices cropped to the liver and enlarged

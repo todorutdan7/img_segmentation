@@ -42,10 +42,12 @@ LAYERS = {
     "unetpp_r50": ["encoder.layers.2", "encoder.layers.3", "nodes.2_2"],
     "unet": ["downs.2", "downs.3", "ups.0"],
     "attention_unet": ["downs.2", "downs.3", "ups.0"],
+    "multiresunet": ["enc.3", "bottleneck", "dec.0"],
 }
 NAMES = {"encoder.layers.2": "ResNet layer 3", "encoder.layers.3": "bottleneck (layer 4)",
          "blocks.1": "decoder", "nodes.2_2": "decoder node 2_2",
-         "downs.2": "encoder level 3", "downs.3": "bottleneck", "ups.0": "decoder"}
+         "downs.2": "encoder level 3", "downs.3": "bottleneck", "ups.0": "decoder",
+         "enc.3": "encoder level 4", "bottleneck": "bottleneck", "dec.0": "decoder"}
 
 
 def seg_gradcam(model, x, region, layers, cls=TUMOUR):

@@ -120,6 +120,10 @@ def main():
             STATE["model"] = m.to(device)
             return (f"{m.count_parameters():,} parameters ({type(m).__name__}, ResNet-50 "
                     f"encoder, random weights for the test; no diagram for this arch)")
+        if cfg.arch == "multiresunet":
+            m = build_model(cfg)
+            STATE["model"] = m.to(device)
+            return f"{m.count_parameters():,} parameters ({type(m).__name__}; no diagram for this arch)"
         from src.utils.diagram import plan
         m = build_model(cfg)
         P = plan(base_filters=cfg.base_filters, depth=cfg.depth,

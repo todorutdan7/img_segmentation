@@ -135,13 +135,27 @@ For NIfTI the slice thickness is read from the scan header, and `view3d --nifti`
 exports the CT in HU at true voxel size. `viewer --from-export 16` reopens such
 an export without the model.
 
-**Models.** `--arch` picks one of five:
+**Models.** `--arch` picks one of six:
 
 | `--arch` | Encoder | Parameters |
 | --- | --- | --- |
 | `unet`, `attention_unet` | trained from scratch, 32 base filters, depth 4 | 7.8 M, 7.9 M |
 | `unet_r50`, `attention_unet_r50` | ResNet-50 pretrained on ImageNet (`--encoder-weights none` = random start), depth 5 | 32.5 M, 34.4 M |
 | `unetpp_r50` | U-Net++ on the same ResNet-50 | 49.0 M |
+| `multiresunet` | MultiResUNet (Ibtehaz & Rahman 2020), from scratch, depth 4 | 7.2 M |
+
+MultiResUNet replaces each pair of 3x3 convolutions with a MultiRes block:
+three 3x3 convolutions in a chain, whose outputs see 3x3, 5x5 and 7x7 of the
+input, joined and added to a 1x1 shortcut. Each skip connection goes through a
+"Res path" of 4, 3, 2 and 1 convolutions (top level down). It is built as in
+the authors' Keras code, with our usual 1x1 head to the three classes. It is
+smaller than U-Net but needs ~3x the memory and ~2.8x the time per step: at
+512 batch 8 would take ~10.6 GB, so on an 8 GB card use
+`--batch-size 4 --accum-steps 2`.
+
+```bash
+python -m src.train --arch multiresunet --batch-size 4 --accum-steps 2
+```
 
 U-Net++ adds a row of nodes on every skip, so each encoder level is refined
 step by step before it reaches the decoder (the layout of

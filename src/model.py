@@ -262,6 +262,114 @@ class UNet(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# MultiResUNet (Ibtehaz & Rahman, Neural Networks 2020), trained from scratch
+# ---------------------------------------------------------------------------
+# Two changes to U-Net, built as in the authors' Keras code
+# (github.com/nibtehaz/MultiResUNet, tensorflow/MultiResUNet.py):
+#  - a MultiRes block replaces each pair of 3x3 convolutions: three 3x3
+#    convolutions in a chain, so their outputs see 3x3, 5x5 and 7x7 of the
+#    input - one block looks at small and larger structures at once - joined
+#    together, plus a 1x1 shortcut as in a ResNet
+#  - each skip connection goes through a "Res path" of 3x3 convolutions (4 at
+#    the top level, then 3, 2, 1), because the encoder's early, simple
+#    features and the decoder's late ones are far apart in meaning
+# The head is our usual 1x1 convolution to one score per class (the Keras
+# version ends in a single sigmoid channel). The Keras BatchNorm after each
+# convolution learns no scale; here it does, as everywhere else in this file.
+
+def conv_bn(in_ch, out_ch, k, relu=True):
+    layers = [nn.Conv2d(in_ch, out_ch, k, padding=k // 2, bias=False), nn.BatchNorm2d(out_ch)]
+    if relu:
+        layers.append(nn.ReLU(inplace=True))
+    return nn.Sequential(*layers)
+
+
+class MultiResBlock(nn.Module):
+    """U filters' worth of a MultiRes block: W = 1.67 U split 1/6, 1/3, 1/2
+    over the three chained 3x3 convolutions, rounded down as in the paper"""
+
+    def __init__(self, in_ch, U, alpha=1.67):
+        super().__init__()
+        W = alpha * U
+        c3, c5, c7 = int(W * 0.167), int(W * 0.333), int(W * 0.5)
+        self.out_ch = c3 + c5 + c7
+        self.shortcut = conv_bn(in_ch, self.out_ch, 1, relu=False)
+        self.c3 = conv_bn(in_ch, c3, 3)
+        self.c5 = conv_bn(c3, c5, 3)        # two 3x3 in a row see 5x5
+        self.c7 = conv_bn(c5, c7, 3)        # three see 7x7
+        self.bn_cat = nn.BatchNorm2d(self.out_ch)
+        self.bn_out = nn.BatchNorm2d(self.out_ch)
+
+    def forward(self, x):
+        a = self.c3(x)
+        b = self.c5(a)
+        c = self.c7(b)
+        out = self.bn_cat(torch.cat([a, b, c], dim=1)) + self.shortcut(x)
+        return self.bn_out(F.relu(out))
+
+
+class ResPath(nn.Module):
+    """`length` steps of 3x3 convolution + 1x1 shortcut on a skip connection"""
+
+    def __init__(self, in_ch, filters, length):
+        super().__init__()
+        self.shortcuts = nn.ModuleList(
+            [conv_bn(in_ch if i == 0 else filters, filters, 1, relu=False) for i in range(length)])
+        self.convs = nn.ModuleList(
+            [conv_bn(in_ch if i == 0 else filters, filters, 3) for i in range(length)])
+        self.bns = nn.ModuleList([nn.BatchNorm2d(filters) for _ in range(length)])
+
+    def forward(self, x):
+        for sc, conv, bn in zip(self.shortcuts, self.convs, self.bns):
+            x = bn(F.relu(conv(x) + sc(x)))
+        return x
+
+
+class MultiResUNet(nn.Module):
+    def __init__(self, in_channels=1, num_classes=3, base_filters=32, depth=4, dropout=0.0, **_):
+        super().__init__()
+        self.depth = depth
+        U = [base_filters * 2 ** i for i in range(depth + 1)]       # 32 ... 512
+        self.enc, self.res = nn.ModuleList(), nn.ModuleList()
+        ch = in_channels
+        for i in range(depth):
+            blk = MultiResBlock(ch, U[i])
+            self.enc.append(blk)
+            self.res.append(ResPath(blk.out_ch, U[i], depth - i))   # lengths 4, 3, 2, 1
+            ch = blk.out_ch
+        self.bottleneck = MultiResBlock(ch, U[depth])
+        self.drop = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
+        ch = self.bottleneck.out_ch
+        self.ups, self.dec = nn.ModuleList(), nn.ModuleList()
+        for i in reversed(range(depth)):
+            self.ups.append(nn.ConvTranspose2d(ch, U[i], kernel_size=2, stride=2))
+            blk = MultiResBlock(2 * U[i], U[i])
+            self.dec.append(blk)
+            ch = blk.out_ch
+        self.head = nn.Conv2d(ch, num_classes, kernel_size=1)
+        init_conv_bn(self)
+
+    def forward(self, x):
+        skips = []
+        for blk, res in zip(self.enc, self.res):
+            x = blk(x)
+            skips.append(res(x))
+            x = F.max_pool2d(x, 2)
+        x = self.drop(self.bottleneck(x))
+        for up, blk in zip(self.ups, self.dec):
+            x = up(x)
+            skip = skips.pop()
+            dy, dx = skip.size(-2) - x.size(-2), skip.size(-1) - x.size(-1)
+            if dy or dx:                                  # odd input sizes
+                x = F.pad(x, [dx // 2, dx - dx // 2, dy // 2, dy - dy // 2])
+            x = blk(torch.cat([x, skip], dim=1))
+        return self.head(x)
+
+    def count_parameters(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+
+# ---------------------------------------------------------------------------
 # U-Net, Attention U-Net and U-Net++ with an ImageNet-pretrained ResNet-50 encoder
 # ---------------------------------------------------------------------------
 # The encoder half is a ResNet-50 that already learnt edges, textures and
@@ -418,7 +526,7 @@ class ResNetUNetPlusPlus(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
-ARCHES = {"attention_unet": AttentionUNet, "unet": UNet,
+ARCHES = {"attention_unet": AttentionUNet, "unet": UNet, "multiresunet": MultiResUNet,
           "attention_unet_r50": lambda **kw: ResNetUNet(attention=True, **kw),
           "unet_r50": lambda **kw: ResNetUNet(attention=False, **kw),
           "unetpp_r50": ResNetUNetPlusPlus}

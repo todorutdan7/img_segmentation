@@ -20,7 +20,7 @@ SIZE_STEPS = ["#bdbcb6", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"]   # none ->
 ARCH = {  # arch -> (name, pretrained ResNet-50 encoder)
     "unet": ("U-Net", False), "attention_unet": ("Attention U-Net", False),
     "unet_r50": ("U-Net", True), "attention_unet_r50": ("Attention U-Net", True),
-    "unetpp_r50": ("U-Net++", True),
+    "unetpp_r50": ("U-Net++", True), "multiresunet": ("MultiResUNet", False),
 }
 
 
