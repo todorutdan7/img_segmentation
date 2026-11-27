@@ -281,6 +281,9 @@ def parse_args(argv=None):
                         "(src/cascade.py). Same split and fold as that run")
     p.add_argument("--crop-margin", type=float, default=d.crop_margin,
                    help="--crop-liver: margin around the liver box on each side (0.1 = 10%%)")
+    p.add_argument("--crop-size", type=int, default=d.crop_size,
+                   help="--crop-liver: enlarge the crop to this many px (e.g. 640) instead of "
+                        "the slice size, for more zoom on small lesions; needs more GPU memory")
 
     p.add_argument("--data-format", choices=["nifti", "png"], default=d.data_format,
                    help="nifti = MSD Task03_Liver (default), png = the internship's export")
@@ -355,6 +358,8 @@ def parse_args(argv=None):
         p.error(f"--fold must be 0..{a.folds - 1}")
     if a.folds and a.split_by_slice:
         p.error("--folds splits patients; it cannot be used with --split-by-slice")
+    if a.crop_size and not a.crop_liver:
+        p.error("--crop-size only applies with --crop-liver")
     cfg = Config(
         data_dir=a.data_dir, data_format=a.data_format, nifti_dir=a.nifti_dir,
         hu_window=tuple(a.hu_window),
@@ -367,7 +372,7 @@ def parse_args(argv=None):
         skip_empty=not a.keep_empty, max_samples=a.max_samples,
         split_by_volume=not a.split_by_slice, folds=a.folds, fold=a.fold,
         arch=a.arch, in_slices=a.in_slices, encoder_weights=a.encoder_weights,
-        crop_liver=a.crop_liver, crop_margin=a.crop_margin,
+        crop_liver=a.crop_liver, crop_margin=a.crop_margin, crop_size=a.crop_size,
         base_filters=a.base_filters, depth=a.depth, dropout=a.dropout,
         batch_norm=not a.no_batch_norm, bilinear=a.bilinear,
         loss=a.loss, dice_weight=a.dice_weight, class_weights=a.class_weights,

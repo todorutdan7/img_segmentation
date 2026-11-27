@@ -45,7 +45,8 @@ def readable_run_name(c: dict) -> str:
     if c.get("liver_only"):
         parts.append("liver-only")
     if c.get("crop_liver"):
-        parts.append("liver-crop")
+        cs = c.get("crop_size", 0)
+        parts.append("liver-crop" + (f"{cs}" if cs and cs != c.get("image_size", 512) else ""))
         if c.get("crop_margin", 0.1) != 0.1:
             parts.append(f"margin{c['crop_margin']:g}")
     if c.get("lr", 1e-3) != 1e-3:
@@ -135,6 +136,8 @@ class Config:
                                       # slices cropped to the liver and enlarged
                                       # (src/cascade.py). "" = full slices
     crop_margin: float = 0.1          # around the liver box, each side
+    crop_size: int = 0                # the crop is enlarged to this many px, the
+                                      # model's input; 0 = image_size (the cache's)
 
     in_slices: int = 1                # slices given to the model as channels
                                       # 1 = 2D, the slice alone

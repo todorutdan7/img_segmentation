@@ -85,7 +85,8 @@ class Run:
         c = self.cfg
         return (c["arch"], c.get("in_slices", 1), c.get("lr", 1e-3),
                 c.get("batch_size", 8), c.get("accum_steps", 1), c.get("loss", "dice_ce"),
-                c.get("dice_weight", 0.5), bool(c.get("crop_liver")), c.get("crop_margin", 0.1))
+                c.get("dice_weight", 0.5), bool(c.get("crop_liver")), c.get("crop_margin", 0.1),
+                c.get("crop_size", 0))
 
 
 def load_runs(runs_dir: Path):

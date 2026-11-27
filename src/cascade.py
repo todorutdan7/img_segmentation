@@ -189,9 +189,12 @@ class LiverCropDataset(NiftiSliceDataset):
     enlarged back to image_size. boxes: {key: [y0, y1, x0, x1] fractions}.
     With augment on, every read moves and resizes the box a little."""
 
-    def __init__(self, items, cache_dir, volumes, boxes, margin=0.1, **kw):
+    def __init__(self, items, cache_dir, volumes, boxes, margin=0.1, crop_size=0, **kw):
         super().__init__(items, cache_dir, volumes, **kw)
         self.boxes, self.margin = boxes, margin
+        # the size the crop is enlarged to, the model's input: image_size (the
+        # cache's) by default; larger = more zoom on the same cached slices
+        self.crop_size = crop_size or self.image_size
 
     def _box(self, key, size):
         return px_box(square_box(self.boxes[key], self.margin, jitter=self.augment), size)
@@ -207,7 +210,7 @@ class LiverCropDataset(NiftiSliceDataset):
         zs = np.clip(np.arange(z - k, z + k + 1), 0, img.shape[0] - 1)
         x = torch.from_numpy(self.scale(img[zs, y0:y1, x0:x1].astype(np.float32)))
         y = torch.from_numpy(lab[z, y0:y1, x0:x1].astype(np.int64))
-        S = self.image_size
+        S = self.crop_size
         if x.shape[-1] != S:
             x = F.interpolate(x[None], size=(S, S), mode="bilinear", align_corners=False)[0]
             y = F.interpolate(y[None, None].float(), size=(S, S), mode="nearest-exact")[0, 0].long()
@@ -247,9 +250,11 @@ def make_datasets(cfg, tr, va, te, cache_dir, index, verbose=True):
     sb = load_stage1_boxes(cfg.crop_liver, {k for k, _ in te})
     kw = dict(liver_only=cfg.liver_only, hu_window=cfg.hu_window, in_slices=cfg.in_slices)
     mk = lambda p, boxes, aug: LiverCropDataset(p, cache_dir, index, boxes, cfg.crop_margin,
-                                                augment=aug, **kw)
+                                                getattr(cfg, "crop_size", 0), augment=aug, **kw)
     if verbose:
-        print(f"[crop] stage 2: slices cropped to the liver (+{cfg.crop_margin:.0%} margin); "
+        size = getattr(cfg, "crop_size", 0) or cfg.image_size
+        print(f"[crop] stage 2: slices cropped to the liver (+{cfg.crop_margin:.0%} margin), "
+              f"enlarged to {size} px; "
               f"train/val on true boxes, test on stage 1's ({Path(cfg.crop_liver).name})")
     return mk(tr, tb, cfg.augment), mk(va, tb, False), mk(te, sb, False)
 

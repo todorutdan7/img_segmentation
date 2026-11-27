@@ -44,7 +44,8 @@ def run_label(cfg, select_metric="tumor_case"):
     if (b, k) != (8, 1):
         extra.append(f"batch {b}x{k}" if k > 1 else f"batch {b}")
     if cfg.get("crop_liver"):
-        extra.append("liver crop")
+        cs = cfg.get("crop_size", 0)
+        extra.append("liver crop" + (f" {cs} px" if cs and cs != cfg.get("image_size", 512) else ""))
     loss = cfg.get("loss", "dice_ce")
     if loss == "dice_ce_slice":
         extra.append("per-slice Dice loss")

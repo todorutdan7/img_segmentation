@@ -36,6 +36,8 @@ def load_folds(group_dir: Path, split="test"):
                  f"  batch {batch}")
         if c.get("crop_liver"):
             label += "  liver crop"
+            if c.get("crop_size", 0) and c["crop_size"] != c.get("image_size", 512):
+                label += f" {c['crop_size']} px"
         if c.get("loss", "dice_ce") != "dice_ce":
             label += f"  loss {c['loss']}"
         if c.get("dice_weight", 0.5) != 0.5:

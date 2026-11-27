@@ -190,8 +190,14 @@ Stage 1 must have the same split and fold. The first stage-2 run writes
 `<stage 1>/liver_boxes_test.json` and prints how much true liver and tumour
 falls inside the boxes (`python -m src.cascade --stage1 <run>` does only that).
 
+`--crop-size 640` enlarges the crop to 640 px instead of the slice size, for
+more zoom on small lesions (median ~1.85x per side instead of ~1.5x) from the
+same 512 cache. For the ResNet-50 U-Net at batch 8 that is ~5.7 GB instead of
+~3.8 GB, and ~1.3-1.6x the time per step.
+
 ```bash
 python -m src.train --arch unet_r50 --in-slices 3 --lr 1e-4 --group r50 --crop-liver runs/nifti/r50/unet_r50_2.5d_lr1e-4
+python -m src.train --arch unet_r50 --in-slices 3 --lr 1e-4 --group r50 --crop-liver runs/nifti/r50/unet_r50_2.5d_lr1e-4 --crop-size 640
 ```
 
 **Adding a model.** Add the class to `ARCHES` in `src/model.py` and its name to
