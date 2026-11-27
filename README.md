@@ -215,6 +215,12 @@ because tumour is 0.12% of pixels and liver about 2%, so accuracy is never used.
   back into 3D, only the largest connected liver piece is kept, and tumour
   outside it is removed. `reeval` and `train` report every score raw and
   cleaned; `reeval --min-tumor-voxels N` also drops tumour pieces under N voxels.
+- **Test-time flips** (`reeval --tta`, no retraining): each slice is predicted
+  as it is, mirrored left-right, top-bottom and both; the four predictions
+  are flipped back and their class probabilities averaged. It takes 4x as long
+  and writes `metrics_test_tta.json` (and `*_test_tta.png`), so the plain
+  scores stay; `src.lesions --split test_tta` and `src.utils.kfold --split
+  test_tta` read them.
 - **Lesions found, by size** (`src/lesions.py`, NIfTI only). Every true lesion
   (a 3D connected piece of tumour) counts on its own: *found* if any of it is
   predicted tumour, *≥ 50% found* if at least half is. Lesions are grouped by

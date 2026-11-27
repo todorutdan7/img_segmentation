@@ -103,11 +103,11 @@ def print_lesions(s, title="lesions"):
 
 # ------------------------------------------------------------ comparing runs
 
-def _runs(paths, group):
+def _runs(paths, group, split="test"):
     from src.config import RUNS_DIR
     dirs = [Path(p) for p in paths]
     if group:
-        dirs += sorted(h.parent for h in (Path(RUNS_DIR) / group).glob("*/metrics_test.json"))
+        dirs += sorted(h.parent for h in (Path(RUNS_DIR) / group).glob(f"*/metrics_{split}.json"))
     return dirs
 
 
@@ -117,12 +117,14 @@ def main():
     p.add_argument("runs", nargs="*", help="run folders")
     p.add_argument("--group", default=None, help="every run under runs/<group>, e.g. nifti/r50")
     p.add_argument("--raw", action="store_true", help="before the 3D clean-up (default: after)")
+    p.add_argument("--split", default="test",
+                   help="test (default), or test_tta for the scores with test-time flips (reeval --tta)")
     a = p.parse_args()
 
     which = "raw" if a.raw else "cleaned"
     models, missing = {}, []
-    for d in _runs(a.runs, a.group):
-        m, h = d / "metrics_test.json", d / "history.json"
+    for d in _runs(a.runs, a.group, a.split):
+        m, h = d / f"metrics_{a.split}.json", d / "history.json"
         if not (m.exists() and h.exists()):
             continue
         s = json.loads(m.read_text()).get("scores", {}).get(which, {}).get("lesions")

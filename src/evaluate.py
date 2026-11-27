@@ -13,6 +13,34 @@ from matplotlib.colors import ListedColormap
 OVERLAY_COLORS = [(0, 0, 0, 0), (0.20, 0.55, 0.95, 0.55), (0.95, 0.25, 0.20, 0.75)]
 
 
+class FlipTTA(torch.nn.Module):
+    """test-time flips: the model sees each slice as it is, mirrored left-right,
+    mirrored top-bottom and both; the four predictions are flipped back and
+    their class probabilities averaged. Training already flips slices at
+    random, so all four views are ones the model knows. Averaging removes
+    stray pixels that only one view predicts.
+
+    Returns log probabilities, so argmax - and everything that reads the
+    output as logits - works as before. Only for scoring, never training."""
+
+    FLIPS = ([], [-1], [-2], [-2, -1])
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        p = 0
+        for dims in self.FLIPS:
+            xi = torch.flip(x, dims) if dims else x
+            out = torch.softmax(self.model(xi).float(), dim=1)
+            p = p + (torch.flip(out, dims) if dims else out)
+        return torch.log((p / len(self.FLIPS)).clamp_min(1e-8))
+
+    def count_parameters(self):
+        return self.model.count_parameters()
+
+
 def predict_batch(model, x, y, dataset, i0, device):
     """the model's labels for one batch, and the truth to score them against.
     A liver-crop dataset (src/cascade.py) maps both back to the full slice, so

@@ -19,10 +19,11 @@ from pathlib import Path
 import numpy as np
 
 
-def load_folds(group_dir: Path):
+def load_folds(group_dir: Path, split="test"):
+    """split: "test", or "test_tta" for the runs rescored with test-time flips"""
     models = {}
     for d in sorted(group_dir.iterdir()):
-        h, m = d / "history.json", d / "metrics_test.json"
+        h, m = d / "history.json", d / f"metrics_{split}.json"
         if not (h.exists() and m.exists()):
             continue
         H, M = json.loads(h.read_text()), json.loads(m.read_text())
@@ -100,12 +101,15 @@ def main():
 
     p = argparse.ArgumentParser(description="sum up a k-fold experiment")
     p.add_argument("--group", default="nifti/kfold", help="folder under runs/, e.g. nifti/kfold")
+    p.add_argument("--split", default="test",
+                   help="test (default), or test_tta: the scores rescored with test-time flips "
+                        "(reeval --tta); written to <group>_test_tta.txt")
     a = p.parse_args()
 
     gdir = Path(RUNS_DIR) / a.group
     if not gdir.exists():
         raise SystemExit(f"no such group: {gdir}")
-    models = load_folds(gdir)
+    models = load_folds(gdir, a.split)
     if not models:
         raise SystemExit(f"no finished k-fold runs (trained with --folds) in {gdir}")
 
@@ -118,7 +122,8 @@ def main():
     txt = "\n".join(lines)
     print(txt)
 
-    out = results_dir("nifti", "kfold") / f"{a.group.rstrip('/').split('/')[-1]}.txt"
+    name = a.group.rstrip('/').split('/')[-1] + ("" if a.split == "test" else f"_{a.split}")
+    out = results_dir("nifti", "kfold") / f"{name}.txt"
     out.write_text(txt, encoding="utf-8")
     print(f"\n[saved] {out}")
 

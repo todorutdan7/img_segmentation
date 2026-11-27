@@ -30,8 +30,11 @@ from src.evaluate import evaluate, volume_scores, print_scores
 
 
 def run_one(ckpt: Path, device, num_workers=0, batch_size=None,
-            keep_empty=False, min_tumor_voxels=0, verbose=True):
+            keep_empty=False, min_tumor_voxels=0, tta=False, verbose=True):
     model, cfg, ck = load_checkpoint(ckpt, device)
+    if tta:
+        from src.evaluate import FlipTTA
+        model = FlipTTA(model).eval()
 
     # The checkpoint carries the config it was TRAINED with, including
     # machine-specific settings. A model trained on Linux with num_workers=4
@@ -50,8 +53,25 @@ def run_one(ckpt: Path, device, num_workers=0, batch_size=None,
     if keep_empty:
         cfg = replace(cfg, skip_empty=False)
         split_name = "test_allslices"
+    if tta:
+        # its own files (metrics_test_tta.json, *_test_tta.png): the plain
+        # scores stay as they are, so the two can be compared
+        split_name += "_tta"
 
     out_dir = ckpt.parent
+    # the fields compare.py expects, from the previous metrics file - read now,
+    # because evaluate() below rewrites that file (for a first --tta run, from
+    # the plain metrics_test.json)
+    kept = {}
+    for prev in (out_dir / f"metrics_{split_name}.json", out_dir / "metrics_test.json"):
+        if prev.exists():
+            try:
+                P = json.loads(prev.read_text())
+                kept = {k: P[k] for k in ("best_val_dice_fg", "train_minutes") if k in P}
+            except json.JSONDecodeError:
+                pass
+            if kept:
+                break
     print(f"\n=== {out_dir.name} ===")
     print(f"[load] arch={cfg.arch}  data={cfg.data_format}  epoch={ck.get('epoch')}  "
           f"val_dice_fg={ck.get('val_dice_fg', float('nan')):.4f}  "
@@ -81,16 +101,8 @@ def run_one(ckpt: Path, device, num_workers=0, batch_size=None,
     metrics["scores"] = volume_scores(model, test_loader, device, cfg.class_names,
                                       slice_keys(ds), min_tumor_voxels)
     print_scores(metrics["scores"], cfg.class_names)
-    # keep the fields compare.py expects, if a previous metrics file had them
+    metrics.update(kept)
     old = out_dir / f"metrics_{split_name}.json"
-    if old.exists():
-        try:
-            prev = json.loads(old.read_text())
-            for k in ("best_val_dice_fg", "train_minutes"):
-                if k in prev:
-                    metrics[k] = prev[k]
-        except json.JSONDecodeError:
-            pass
     old.write_text(json.dumps(metrics, indent=2))
     print(f"[saved] {old}")
     return metrics
@@ -114,6 +126,10 @@ def main():
     p.add_argument("--min-tumor-voxels", type=int, default=0,
                    help="clean-up: tumour pieces smaller than this become liver. "
                         "0 (default) keeps every piece inside the liver")
+    p.add_argument("--tta", action="store_true",
+                   help="test-time flips: average the predictions of each slice as it is, "
+                        "mirrored left-right, top-bottom and both (4x slower). Writes "
+                        "metrics_test_tta.json, the plain results are not overwritten")
     a = p.parse_args()
 
     device = get_device()
@@ -125,12 +141,12 @@ def main():
     if not ckpts:
         raise SystemExit(f"no checkpoints found under runs/{a.group}")
 
-    mode = "ALL slices" if a.keep_empty else "foreground slices only"
+    mode = ("ALL slices" if a.keep_empty else "foreground slices only") + (", test-time flips" if a.tta else "")
     print(f"re-evaluating {len(ckpts)} run(s) on device={device} "
           f"(num_workers={a.num_workers}, {mode})")
     for c in ckpts:
         run_one(c, device, num_workers=a.num_workers, batch_size=a.batch_size,
-                keep_empty=a.keep_empty, min_tumor_voxels=a.min_tumor_voxels)
+                keep_empty=a.keep_empty, min_tumor_voxels=a.min_tumor_voxels, tta=a.tta)
 
     print(f"\ndone. Re-run  python -m src.utils.compare --group {a.group}  "
           f"to refresh the comparison.")
